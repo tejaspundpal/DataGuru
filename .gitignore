@@ -1,0 +1,11 @@
+.venv/
+.env
+chroma_db/
+__pycache__/
+*.pyc
+.DS_Store
+# Exclude planning and tracking docs
+docs/
+task.md
+implementation_plan.md
+summary.md
