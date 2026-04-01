@@ -9,7 +9,7 @@ CHROMA_DB_DIR     = BASE_DIR / "chroma_db"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
 # ── ChromaDB ──────────────────────────────────────────────────
-COLLECTION_NAME = "datagurus_knowledge"
+COLLECTION_NAME = "dataguru_knowledge"
 
 # ── Groq / LLM ───────────────────────────────────────────────
 GROQ_MODEL = "llama-3.3-70b-versatile"

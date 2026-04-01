@@ -8,7 +8,15 @@ Flow:
 """
 
 import sys
+import os
+import logging
 from pathlib import Path
+
+# Silence Hugging Face and Transformer warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import transformers
+transformers.utils.logging.set_verbosity_error()
+logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -65,37 +73,37 @@ def load_documents(kb_dir: Path) -> list[dict]:
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE_CHARS, overlap: int = CHUNK_OVERLAP_CHARS) -> list[str]:
     """
     Split text into overlapping chunks using a sliding window.
-
-    Strategy:
-    - Target chunk size in characters (~375 tokens at 4 chars/token)
-    - Overlap preserves context across chunk boundaries
-    - Prefer breaking at newlines for cleaner, more coherent chunks
-    - Discard tiny chunks (< 80 chars) that carry little information
+    Ensures that we move forward efficiently while respecting paragraph breaks where possible.
     """
     chunks = []
     start  = 0
     text_len = len(text)
 
+    if text_len <= chunk_size:
+        return [text] if text.strip() else []
+
     while start < text_len:
-        end   = min(start + chunk_size, text_len)
-        chunk = text[start:end]
-
-        # Prefer breaking at a newline to keep sentences/paragraphs whole
+        # Determine the initial end point
+        end = min(start + chunk_size, text_len)
+        
+        # If we're not at the very end, try to find a nice break point (newline)
         if end < text_len:
-            last_newline = chunk.rfind("\n")
-            if last_newline > chunk_size // 2:
-                end   = start + last_newline
-                chunk = text[start:end]
+            # Look for newline in the last 25% of the chunk
+            search_start = end - (chunk_size // 4)
+            break_point = text.rfind("\n", search_start, end)
+            if break_point != -1:
+                end = break_point
 
-        chunk = chunk.strip()
-        if len(chunk) >= 80:
+        chunk = text[start:end].strip()
+        if len(chunk) > 50: # Only save meaningful chunks
             chunks.append(chunk)
 
-        # Advance window, step back by overlap
-        next_start = end - overlap
-        if next_start <= start:          # safeguard against infinite loop
-            next_start = start + 1
-        start = next_start
+        # Move start forward, ensuring we always progress by at least (size - overlap)
+        # to avoid the infinite loop/tiny step bug.
+        start = end - overlap
+        if start >= text_len - (chunk_size // 10): # If we are very close to end, just stop
+            break
+        if start < 0: start = 0 # Safety for very short files
 
     return chunks
 
