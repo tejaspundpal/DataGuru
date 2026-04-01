@@ -1,7 +1,9 @@
 """
 Flow:
-  knowledge_base/ (.md files)
-       → load documents
+  MCP Server (GitHub remote repository)
+       → connect via stdio MCP Client
+       → call `fetch_repo_contents` tool
+       → receive documents (content + metadata)
        → chunk text (sliding window with overlap)
        → embed chunks (sentence-transformers, local)
        → store in ChromaDB (persistent on disk)
@@ -10,66 +12,68 @@ Flow:
 import sys
 import os
 import logging
+import asyncio
 from pathlib import Path
-
-# Silence Hugging Face and Transformer warnings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-import transformers
-transformers.utils.logging.set_verbosity_error()
-logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import chromadb
 from sentence_transformers import SentenceTransformer
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
 from config import (
-    KNOWLEDGE_BASE_DIR,
     CHROMA_DB_DIR,
     EMBEDDING_MODEL,
     COLLECTION_NAME,
     CHUNK_SIZE_CHARS,
     CHUNK_OVERLAP_CHARS,
+    GITHUB_REPO
 )
 
 
-# Step 1: Load Documents
-
-def load_documents(kb_dir: Path) -> list[dict]:
+# Step 1: Load Documents via MCP Server
+async def load_documents_via_mcp() -> list[dict]:
     """
-    Recursively walk the knowledge_base/ directory.
-    Read every .md and .txt file.
-    Tag each document with metadata derived from its folder name.
-
-    Returns:
-        List of dicts: {content, source, technology, doc_name}
+    Connect to the local GitHub MCP server over stdio,
+    and request it to fetch all markdown files from the target GitHub repo.
     """
-    documents = []
+    server_script = Path(__file__).parent / "mcp_github_server.py"
 
-    for file_path in sorted(kb_dir.rglob("*.md")):
-        tech_category = file_path.parent.name   
-        doc_name      = file_path.stem           
-        source        = str(file_path.relative_to(kb_dir.parent)) 
+    server_params = StdioServerParameters(
+        command=sys.executable,  # Uses the current Python interpreter (.venv)
+        args=[str(server_script)],
+        env=os.environ.copy()
+    )
 
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-
-        if not content:
-            print(f">>>>>>> Skipping empty file: {source}")
-            continue
-
-        documents.append({
-            "content":    content,
-            "source":     source,
-            "technology": tech_category,
-            "doc_name":   doc_name,
-        })
-        print(f"  Loaded: {source}")
-
-    return documents
+    print(f"  [MCP] Connecting to GitHub MCP Server...")
+    try:
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                
+                print(f"  [MCP] Session initialized. Requesting documents from repository...")
+                # Calling the tool defined in mcp_github_server.py
+                result = await session.call_tool("fetch_repo_contents", arguments={})
+                
+                # The tool returns JSON data. For fastmcp, tools return text/json content blocks
+                # We need to extract the data. Usually it returns a list of dictionaries if JSON.
+                if result.content and len(result.content) > 0:
+                    try:
+                        import json
+                        # Depending on the MCP version, the content is text
+                        data = json.loads(result.content[0].text)
+                        return data
+                    except Exception as e:
+                        print(f"  [MCP] Error parsing result from server: {e}")
+                        return []
+                return []
+    except Exception as e:
+        print(f"  [MCP Error]: Failed to fetch documents via MCP. Make sure everything is configured. Error: {e}")
+        return []
 
 
 # Step 2: Chunk Text
-
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE_CHARS, overlap: int = CHUNK_OVERLAP_CHARS) -> list[str]:
     """
     Split text into overlapping chunks using a sliding window.
@@ -100,7 +104,14 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE_CHARS, overlap: int = CHU
 
         # Move start forward, ensuring we always progress by at least (size - overlap)
         # to avoid the infinite loop/tiny step bug.
-        start = end - overlap
+        new_start = end - overlap
+        if new_start <= start:
+            new_start = start + 1  # Force progress if overlap causes backward movement
+        start = new_start
+
+        if end == text_len:             
+            break 
+
         if start >= text_len - (chunk_size // 10): # If we are very close to end, just stop
             break
         if start < 0: start = 0 # Safety for very short files
@@ -109,18 +120,22 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE_CHARS, overlap: int = CHU
 
 
 # Step 3 + 4: Embed & Store
-
-def ingest_documents():
+async def ingest_documents():
     """
     Main ingestion pipeline:
-    1. Load all docs from knowledge_base/
+    1. Fetch all docs from GitHub via MCP Server
     2. Chunk each document
     3. Embed all chunks locally (sentence-transformers)
     4. Upsert into ChromaDB persistent collection
     """
     print("\n" + "=" * 62)
-    print("  DataGuru Knowledge Assistant — Document Ingestion")
+    print("  DataGuru Knowledge Assistant — Data Ingestion (MCP Client)")
     print("=" * 62)
+
+    if not GITHUB_REPO:
+        print("\n  ❌ ERROR: GITHUB_REPO not set in .env or config.py.")
+        print("  Please set it (e.g. yourusername/dataguru-knowledge-base) and try again.")
+        return
 
     # ── Init ChromaDB ─────────────────────────────────────────
     print("\n[1/4] Initializing ChromaDB...")
@@ -144,22 +159,28 @@ def ingest_documents():
     model = SentenceTransformer(EMBEDDING_MODEL)
     print("  Model ready.")
 
-    # ── Load Documents ────────────────────────────────────────
-    print(f"\n[3/4] Loading documents from: {KNOWLEDGE_BASE_DIR}")
-    documents = load_documents(KNOWLEDGE_BASE_DIR)
+    # ── Load Documents via MCP ────────────────────────────────
+    print(f"\n[3/4] Requesting documents from GitHub repo: {GITHUB_REPO} via MCP Server...")
+    documents = await load_documents_via_mcp()
 
     if not documents:
-        print("\n  ERROR: No documents found. Check knowledge_base/ folder.")
+        print("\n  ERROR: No documents retrieved from MCP Server.")
         return
 
-    print(f"  Total documents loaded: {len(documents)}")
+    print(f"  Total documents received: {len(documents)}")
 
     # ── Chunk → Embed → Store ─────────────────────────────────
     print(f"\n[4/4] Chunking, embedding, and storing...")
     total_chunks = 0
 
     for doc in documents:
-        chunks = chunk_text(doc["content"])
+        # Standardize the structure we expect from the MCP server
+        content = doc.get("content", "")
+        source = doc.get("source", "unknown")
+        technology = doc.get("technology", "General")
+        doc_name = doc.get("doc_name", "doc")
+
+        chunks = chunk_text(content)
         if not chunks:
             continue
 
@@ -167,12 +188,12 @@ def ingest_documents():
         embeddings = model.encode(chunks, show_progress_bar=False).tolist()
 
         # Build ChromaDB payloads
-        ids       = [f"{doc['doc_name']}_{i}" for i in range(len(chunks))]
+        ids       = [f"{doc_name}_{i}" for i in range(len(chunks))]
         metadatas = [
             {
-                "source":     doc["source"],
-                "technology": doc["technology"],
-                "doc_name":   doc["doc_name"],
+                "source":     source,
+                "technology": technology,
+                "doc_name":   doc_name,
             }
             for _ in chunks
         ]
@@ -185,11 +206,11 @@ def ingest_documents():
         )
 
         total_chunks += len(chunks)
-        print(f"  ✓  {doc['source']:<55} → {len(chunks):>2} chunks")
+        print(f"  ✓  {source:<55} → {len(chunks):>2} chunks")
 
     # ── Summary ───────────────────────────────────────────────
     print(f"\n{'=' * 62}")
-    print(f"  ✅ Ingestion complete!")
+    print(f"  ✅ Ingestion complete via MCP!")
     print(f"  Documents : {len(documents)}")
     print(f"  Chunks    : {total_chunks}")
     print(f"  Vector DB : {CHROMA_DB_DIR}")
@@ -197,4 +218,4 @@ def ingest_documents():
 
 
 if __name__ == "__main__":
-    ingest_documents()
+    asyncio.run(ingest_documents())

@@ -12,6 +12,7 @@ Commands during chat:
 
 import os
 import sys
+import asyncio
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -62,8 +63,8 @@ def print_sources(chunks: list[dict]) -> None:
 
 
 def run_ingest() -> None:
-    """Run ingestion and reset retriever singletons."""
-    ingest_documents()
+    """Run ingestion via MCP and reset retriever singletons."""
+    asyncio.run(ingest_documents())
     _retriever.reset_singletons()   # force reload of collection after re-index
 
 

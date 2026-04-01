@@ -16,11 +16,6 @@ import os
 import logging
 from pathlib import Path
 
-# Silence Hugging Face and Transformer warnings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-import transformers
-transformers.utils.logging.set_verbosity_error()
-logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
 sys.path.insert(0, str(Path(__file__).parent))
 

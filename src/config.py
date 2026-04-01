@@ -1,9 +1,21 @@
 from pathlib import Path
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ── Base paths ────────────────────────────────────────────────
 BASE_DIR          = Path(__file__).parent.parent
 KNOWLEDGE_BASE_DIR = BASE_DIR / "knowledge_base"
 CHROMA_DB_DIR     = BASE_DIR / "chroma_db"
+
+# ── GitHub MCP ────────────────────────────────────────────────
+_raw_repo = os.getenv("GITHUB_REPO", "")
+# Sanitize URL to just owner/repo if user pasted the full link
+GITHUB_REPO = _raw_repo.replace("https://github.com/", "").replace("http://github.com/", "").strip("/")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "") # Optional for public repos
+
 
 # ── Embedding (local, free — no API key needed) ───────────────
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
