@@ -8,7 +8,8 @@ Unlike general-purpose AI (like ChatGPT), DataGuru only answers from **your priv
 
 ## 🚀 Key Features
 
-- **Private Knowledge Base**: Ingests internal SOPs, incident reports, and runbooks across **Informatica, SQL, PySpark, Python, and Unix**.
+- **Distributed Knowledge Base**: Documents are proudly hosted in a dedicated, remote GitHub repository.
+- **MCP Integration**: Uses the **Model Context Protocol (MCP)** to securely fetch documents from GitHub over the network, decoupling storage from the application.
 - **Semantic Search**: Uses local vector embeddings to find the most relevant document chunks based on *meaning*, not just keywords.
 - **Source Citations**: Every answer includes the exact file and relevance score from the knowledge base.
 - **Zero Hallucination**: The system is grounded to only answer based on the retrieved context.
@@ -18,10 +19,10 @@ Unlike general-purpose AI (like ChatGPT), DataGuru only answers from **your priv
 
 ## 🏗️ Technical Architecture (RAG Pipeline)
 
-1. **Ingestion**: 
-    - Internal `.md` documents are loaded and split into overlapping chunks to preserve context.
-    - Chunks are converted into 384-dimensional vectors using a local **Sentence-Transformer** model (`all-MiniLM-L6-v2`).
-    - Vectors and metadata are stored in a local **ChromaDB** instance.
+1. **Ingestion (via MCP)**: 
+    - The `ingest.py` client securely connects to the local `mcp_github_server.py` via standard I/O.
+    - The MCP server dynamically fetches `.md` documents directly from a configured remote **GitHub Repository** using its REST API.
+    - Documents are split into overlapping chunks, converted into 384-dimensional vectors using a local **Sentence-Transformer** model (`all-MiniLM-L6-v2`), and stored in a local **ChromaDB** instance.
 2. **Retrieval**: 
     - User queries are embedded using the same local model.
     - A cosine similarity search is performed in ChromaDB to retrieve the top-5 most relevant chunks.
@@ -35,10 +36,11 @@ Unlike general-purpose AI (like ChatGPT), DataGuru only answers from **your priv
 ## 🛠️ Tech Stack
 
 - **LLM**: LLaMA 3.3 70b via **Groq Cloud API**
+- **Architecture**: **Model Context Protocol (MCP)** for distributed tool use
 - **Vector Database**: **ChromaDB** (Local)
 - **Embeddings**: **sentence-transformers** (Local)
 - **Language**: **Python 3.11+**
-- **Orchestration**: Custom RAG pipeline
+- **Orchestration**: Custom Agentic RAG pipeline
 
 ---
 
@@ -47,14 +49,14 @@ Unlike general-purpose AI (like ChatGPT), DataGuru only answers from **your priv
 ```text
 GenAI/
 ├── src/
-│   ├── main.py           # CLI entry point and chat loop
-│   ├── ingest.py         # Document ingestion and vectorization script
-│   ├── retriever.py      # Semantic search and ChromaDB logic
-│   ├── llm_client.py     # RAG prompt engineering and Groq API calls
-│   └── config.py         # Central settings and hyperparameters
-├── knowledge_base/       # Source documents (Informatica, SQL, Spark, etc.)
-├── chroma_db/            # Local persistent vector store
-└── requirements.txt      # Project dependencies
+│   ├── main.py               # CLI entry point and chat loop
+│   ├── ingest.py             # MCP Client: Connects to server, embeds chunks
+│   ├── mcp_github_server.py  # MCP Server: Fetches docs securely from GitHub
+│   ├── retriever.py          # Semantic search and ChromaDB logic
+│   ├── llm_client.py         # RAG prompt engineering and Groq API calls
+│   └── config.py             # Central settings and hyperparameters
+├── chroma_db/                # Local persistent vector store
+└── requirements.txt          # Project dependencies
 ```
 
 ---
@@ -83,6 +85,8 @@ pip install -r requirements.txt
 Create a `.env` file in the root directory:
 ```env
 GROQ_API_KEY=your_actual_api_key_here
+GITHUB_REPO=your_username/your_knowledge_base_repo
+GITHUB_TOKEN=ghp_your_personal_access_token (Optional for public repos)
 ```
 
 ### 4. Ingest Documents
