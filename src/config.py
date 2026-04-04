@@ -32,3 +32,7 @@ CHUNK_OVERLAP_CHARS = 200    # overlap to preserve context across chunks
 
 # ── Retrieval ────────────────────────────────────────────────
 TOP_K = 5   # number of chunks to retrieve per query
+SIMILARITY_THRESHOLD = 0.3    # minimum cosine similarity score to consider a chunk relevant
+
+# ── Chat Memory ──────────────────────────────────────────────
+CHAT_HISTORY_PAIRS = 5  # number of QA pairs to remember in memory

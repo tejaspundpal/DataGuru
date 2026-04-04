@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from ingest import ingest_documents
 import retriever as _retriever
 from retriever import retrieve
-from llm_client import generate_answer
-from config import CHROMA_DB_DIR, TOP_K
+from llm_client import stream_answer
+from config import CHROMA_DB_DIR, TOP_K, CHAT_HISTORY_PAIRS
 
 # ─────────────────────────────────────────────────────────────
 # Banner
@@ -84,6 +84,8 @@ def main():
     print(f"    (Retrieved top-{TOP_K} chunks per query)\n")
     print(SEPARATOR + "\n")
 
+    chat_history = []   # This will hold Conversational Memory
+
     while True:
         try:
             user_input = input("You: ").strip()
@@ -112,10 +114,30 @@ def main():
         print("\n  🔍 Searching knowledge base...")
         chunks = retrieve(user_input)
 
-        print("  🤖 Generating answer...\n")
-        answer = generate_answer(user_input, chunks)
+        if not chunks and not chat_history:
+            print("DataGuru:\n  I'm sorry, I don't see any internal documentation about that. "
+                  "(It fell below our semantic similarity threshold.)\n")
+            print("\n" + SEPARATOR + "\n")
+            continue
 
-        print(f"DataGuru:\n{answer}")
+        print("  🤖 Generating answer...\n")
+        
+        print("DataGuru:\n", end="", flush=True)
+        full_answer = ""
+        for chunk_text in stream_answer(user_input, chunks, chat_history):
+            print(chunk_text, end="", flush=True)
+            full_answer += chunk_text
+        print("\n")
+
+        # Update chat memory
+        chat_history.append({"role": "user", "content": user_input})
+        chat_history.append({"role": "assistant", "content": full_answer})
+        
+        # Enforce memory buffer size limits (1 pair = 2 messages)
+        max_messages = CHAT_HISTORY_PAIRS * 2
+        if len(chat_history) > max_messages:
+            chat_history = chat_history[-max_messages:]
+
         print_sources(chunks)
         print("\n" + SEPARATOR + "\n")
 

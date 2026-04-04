@@ -56,17 +56,20 @@ STRICT RULES YOU MUST FOLLOW:
 # Prompt Builder
 # ─────────────────────────────────────────────────────────────
 
-def build_rag_prompt(query: str, retrieved_chunks: list[dict]) -> list[dict]:
+def build_rag_prompt(query: str, retrieved_chunks: list[dict], chat_history: list[dict] = None) -> list[dict]:
     """
     Constructs the messages list for the Groq API call.
 
     Args:
         query:            User's natural language question.
         retrieved_chunks: List of dicts from retriever.retrieve().
+        chat_history:     List of previous conversation messages.
 
     Returns:
         Messages list in OpenAI chat format.
     """
+    if chat_history is None:
+        chat_history = []
     context_parts = []
     for i, chunk in enumerate(retrieved_chunks, start=1):
         context_parts.append(
@@ -77,45 +80,52 @@ def build_rag_prompt(query: str, retrieved_chunks: list[dict]) -> list[dict]:
             f"{chunk['text']}"
         )
 
-    context_block = "\n\n" + ("─" * 50) + "\n\n".join(context_parts)
+    if context_parts:
+        context_block = "\n\n" + ("─" * 50) + "\n\n".join(context_parts)
+    else:
+        context_block = "(No new internal document chunks matched this follow-up query. Rely on previous conversation history.)"
 
     user_message = (
-        f"Use ONLY the following internal documentation context to answer the question.\n"
+        f"Use ONLY the following internal documentation context (or previous chat history) to answer the question.\n"
         f"Do not use outside knowledge.\n\n"
-        f"CONTEXT:\n{context_block}\n\n"
+        f"NEW CONTEXT:\n{context_block}\n\n"
         f"{'─' * 50}\n\n"
         f"QUESTION: {query}\n\n"
-        f"Provide a clear, technical answer. Cite your sources at the end."
+        f"Provide a clear, technical answer. Cite your sources at the end if applicable."
     )
 
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",   "content": user_message},
-    ]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(chat_history)
+    messages.append({"role": "user", "content": user_message})
+
+    return messages
 
 
 # ─────────────────────────────────────────────────────────────
 # Generate Answer
 # ─────────────────────────────────────────────────────────────
 
-def generate_answer(query: str, retrieved_chunks: list[dict]) -> str:
+def stream_answer(query: str, retrieved_chunks: list[dict], chat_history: list[dict] = None):
     """
-    Send the RAG prompt to Groq and return the generated answer.
+    Send the RAG prompt to Groq and YIELD the generated answer live.
 
     Args:
         query:            User's question.
         retrieved_chunks: Chunks returned by retriever.retrieve().
+        chat_history:     Previous chat context.
 
-    Returns:
-        LLM-generated answer string.
+    Yields:
+        LLM-generated answer chunks as they stream in.
     """
-    if not retrieved_chunks:
-        return (
+    if not retrieved_chunks and not chat_history:
+        yield (
             "No relevant documents found in the knowledge base for your query. "
-            "Please try rephrasing, or add relevant documents to the knowledge base."
+            "It may be mathematically unrelated to our docs, or the knowledge base is empty. "
+            "Please try rephrasing, or add relevant documents."
         )
+        return
 
-    messages = build_rag_prompt(query, retrieved_chunks)
+    messages = build_rag_prompt(query, retrieved_chunks, chat_history)
 
     try:
         response = client.chat.completions.create(
@@ -123,8 +133,13 @@ def generate_answer(query: str, retrieved_chunks: list[dict]) -> str:
             messages=messages,
             temperature=0.1,    # Low = factual and consistent
             max_tokens=1024,
+            stream=True         # Enable LLM streaming
         )
-        return response.choices[0].message.content
+        
+        for chunk in response:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
     except Exception as e:
-        return f"Error calling Groq API: {e}"
+        yield f"Error calling Groq API: {e}"

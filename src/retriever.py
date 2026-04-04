@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import chromadb
 from sentence_transformers import SentenceTransformer
-from config import CHROMA_DB_DIR, COLLECTION_NAME, EMBEDDING_MODEL, TOP_K
+from config import CHROMA_DB_DIR, COLLECTION_NAME, EMBEDDING_MODEL, TOP_K, SIMILARITY_THRESHOLD
 
 # ── Singletons (loaded once per session) ─────────────────────
 _model: SentenceTransformer | None = None
@@ -90,11 +90,13 @@ def retrieve(query: str, top_k: int = TOP_K) -> list[dict]:
         results["metadatas"][0],
         results["distances"][0],
     ):
-        retrieved.append({
-            "text":       text,
-            "source":     meta.get("source", "unknown"),
-            "technology": meta.get("technology", "unknown"),
-            "score":      round(1.0 - dist, 4),   # convert distance → similarity
-        })
+        score = round(1.0 - dist, 4)   # convert distance → similarity
+        if score >= SIMILARITY_THRESHOLD:
+            retrieved.append({
+                "text":       text,
+                "source":     meta.get("source", "unknown"),
+                "technology": meta.get("technology", "unknown"),
+                "score":      score,
+            })
 
     return retrieved
