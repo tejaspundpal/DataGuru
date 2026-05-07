@@ -1,63 +1,162 @@
 import sys
 import os
-import httpx
+import io
+import json
 import asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import GITHUB_REPO, GITHUB_TOKEN
+from config import GITHUB_REPO, GITHUB_TOKEN, MCP_SUPPORTED_EXTENSIONS, MCP_MAX_FILE_BYTES
+import httpx
 from mcp.server.fastmcp import FastMCP
 
 # Initialize the MCP Server
 mcp = FastMCP("GitHub Knowledge Base Server")
 
-async def fetch_file_content(client: httpx.AsyncClient, file_path: str) -> dict:
-    """Fetch raw content for a single file from GitHub."""
-    # Assuming the default branch is main. The raw content URL:
+
+# ─────────────────────────────────────────────────────────────
+# File Type Parsers
+# ─────────────────────────────────────────────────────────────
+
+def _parse_pdf(raw_bytes: bytes) -> str:
+    """Extract text from PDF binary content."""
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+            pages = []
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    pages.append(text)
+            return "\n\n".join(pages)
+    except ImportError:
+        # Fallback to PyPDF2 if pdfplumber not available
+        try:
+            from PyPDF2 import PdfReader
+            reader = PdfReader(io.BytesIO(raw_bytes))
+            pages = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text:
+                    pages.append(text)
+            return "\n\n".join(pages)
+        except ImportError:
+            return ""
+    except Exception:
+        return ""
+
+
+def _parse_docx(raw_bytes: bytes) -> str:
+    """Extract text from .docx binary content."""
+    try:
+        from docx import Document
+        doc = Document(io.BytesIO(raw_bytes))
+        paragraphs = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                paragraphs.append(text)
+
+        # Also extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                if row_text:
+                    paragraphs.append(row_text)
+
+        return "\n\n".join(paragraphs)
+    except ImportError:
+        return ""
+    except Exception:
+        return ""
+
+
+def _parse_text(raw_bytes: bytes) -> str:
+    """Parse plain text files with encoding fallback."""
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            return raw_bytes.decode(encoding)
+        except (UnicodeDecodeError, ValueError):
+            continue
+    return ""
+
+
+# Map extensions to parser types
+_BINARY_EXTENSIONS = {".pdf", ".docx"}
+_TEXT_EXTENSIONS = MCP_SUPPORTED_EXTENSIONS - _BINARY_EXTENSIONS
+
+
+# ─────────────────────────────────────────────────────────────
+# File Fetching
+# ─────────────────────────────────────────────────────────────
+
+async def fetch_file_content(client: httpx.AsyncClient, file_path: str, file_size: int) -> dict:
+    """
+    Fetch and parse content for a single file from GitHub.
+    Handles both text and binary (PDF/docx) formats.
+    """
+    # Skip files that are too large
+    if file_size > MCP_MAX_FILE_BYTES:
+        return {"content": "", "source": file_path, "technology": "General", "doc_name": ""}
+
+    suffix = Path(file_path).suffix.lower()
+    is_binary = suffix in _BINARY_EXTENSIONS
+
+    # Build raw URL
     raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{file_path}"
     headers = {}
     if GITHUB_TOKEN:
         headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
     response = await client.get(raw_url, headers=headers)
-    
-    # If main branch fails, try master branch as fallback (common in some repos)
+
+    # Fallback to master branch
     if response.status_code == 404:
         raw_url_master = f"https://raw.githubusercontent.com/{GITHUB_REPO}/master/{file_path}"
         response = await client.get(raw_url_master, headers=headers)
 
     response.raise_for_status()
-    
-    # Parse path to get metadata just like the local ingest.py did
-    # Example path: "knowledge_base/sql/deadlocks.md"
-    parts = Path(file_path).parts
-    
-    # Try to determine technology category (usually the parent folder)
-    if len(parts) >= 2:
-        tech_category = parts[-2]
-    else:
-        tech_category = "General"
 
+    # Parse based on file type
+    if suffix == ".pdf":
+        content = _parse_pdf(response.content)
+    elif suffix == ".docx":
+        content = _parse_docx(response.content)
+    else:
+        content = _parse_text(response.content)
+
+    content = content.strip()
+
+    # Extract metadata from path
+    parts = Path(file_path).parts
+    tech_category = parts[-2] if len(parts) >= 2 else "General"
     doc_name = Path(file_path).stem
-    
+
     return {
-        "content": response.text.strip(),
+        "content": content,
         "source": file_path,
         "technology": tech_category,
-        "doc_name": doc_name
+        "doc_name": doc_name,
+        "file_type": suffix,
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# MCP Tool
+# ─────────────────────────────────────────────────────────────
 
 @mcp.tool()
 async def fetch_repo_contents() -> str:
     """
-    Fetch all markdown documents from the configured GitHub repository.
-    Returns a list of dictionaries containing file content and metadata.
+    Fetch all supported documents from the configured GitHub repository.
+    Supports: .md, .txt, .log, .sql, .pdf, .docx, .csv, .json, .xml, .yaml, .py, .sh, .conf, .cfg, .ini
+    Returns a JSON list of dictionaries containing file content and metadata.
     """
     if not GITHUB_REPO:
         raise ValueError("GITHUB_REPO environment variable is not set. Please set it to 'owner/repo'.")
 
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/git/trees/main?recursive=1"
-    
+
     headers = {
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "DataGuru-MCP-Server"
@@ -65,9 +164,9 @@ async def fetch_repo_contents() -> str:
     if GITHUB_TOKEN:
         headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.get(api_url, headers=headers)
-        
+
         # Fallback to master if main branch is not found
         if response.status_code == 404:
             api_url_master = f"https://api.github.com/repos/{GITHUB_REPO}/git/trees/master?recursive=1"
@@ -76,21 +175,37 @@ async def fetch_repo_contents() -> str:
         response.raise_for_status()
         tree_data = response.json().get("tree", [])
 
-        # Filter for markdown files
-        md_files = [item["path"] for item in tree_data if item["type"] == "blob" and item["path"].endswith(".md")]
-        
-        # Download files concurrently
-        tasks = [fetch_file_content(client, path) for path in md_files]
-        documents = await asyncio.gather(*tasks, return_exceptions=True)
+        # Filter for supported file types
+        supported_files = []
+        for item in tree_data:
+            if item["type"] != "blob":
+                continue
+            suffix = Path(item["path"]).suffix.lower()
+            if suffix in MCP_SUPPORTED_EXTENSIONS:
+                file_size = item.get("size", 0)
+                supported_files.append((item["path"], file_size))
 
-        # Filter out any that failed
-        successful_docs = [doc for doc in documents if not isinstance(doc, Exception) and doc["content"]]
+        print(f"Found {len(supported_files)} supported files in {GITHUB_REPO}.", file=sys.stderr)
 
-        print(f"Fetched {len(successful_docs)} documents from {GITHUB_REPO} via MCP.")
-        import json
+        # Download files concurrently (batch to avoid overwhelming the API)
+        batch_size = 10
+        documents = []
+        for i in range(0, len(supported_files), batch_size):
+            batch = supported_files[i:i + batch_size]
+            tasks = [fetch_file_content(client, path, size) for path, size in batch]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            documents.extend(batch_results)
+
+        # Filter out failures and empty documents
+        successful_docs = [
+            doc for doc in documents
+            if not isinstance(doc, Exception) and isinstance(doc, dict) and doc.get("content")
+        ]
+
+        print(f"Successfully fetched {len(successful_docs)} documents from {GITHUB_REPO} via MCP.", file=sys.stderr)
         return json.dumps(successful_docs)
 
+
 if __name__ == "__main__":
-    # Start the FastMCP server connected to standard input/output
     print("Starting GitHub Knowledge Base MCP Server...", file=sys.stderr)
     mcp.run()

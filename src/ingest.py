@@ -179,6 +179,7 @@ async def ingest_documents():
         source = doc.get("source", "unknown")
         technology = doc.get("technology", "General")
         doc_name = doc.get("doc_name", "doc")
+        file_type = doc.get("file_type", ".md")
 
         chunks = chunk_text(content)
         if not chunks:
@@ -194,6 +195,7 @@ async def ingest_documents():
                 "source":     source,
                 "technology": technology,
                 "doc_name":   doc_name,
+                "file_type":  file_type,
             }
             for _ in chunks
         ]
@@ -206,13 +208,20 @@ async def ingest_documents():
         )
 
         total_chunks += len(chunks)
-        print(f"  ✓  {source:<55} → {len(chunks):>2} chunks")
+        print(f"  ✓  {source:<55} [{file_type}] → {len(chunks):>2} chunks")
 
     # ── Summary ───────────────────────────────────────────────
+    # Count file types
+    type_counts = {}
+    for doc in documents:
+        ft = doc.get("file_type", ".md")
+        type_counts[ft] = type_counts.get(ft, 0) + 1
+
     print(f"\n{'=' * 62}")
     print(f"  ✅ Ingestion complete via MCP!")
     print(f"  Documents : {len(documents)}")
     print(f"  Chunks    : {total_chunks}")
+    print(f"  File types: {', '.join(f'{k}({v})' for k, v in sorted(type_counts.items()))}")
     print(f"  Vector DB : {CHROMA_DB_DIR}")
     print(f"{'=' * 62}\n")
 
