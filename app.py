@@ -6,6 +6,8 @@ Run: streamlit run app.py
 """
 
 import sys
+import hashlib
+import re
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -31,19 +33,19 @@ st.markdown("""
     --primary-dark: #0e7490;
     --accent: #14b8a6;
     --accent-light: #2dd4bf;
-    --surface: #ffffff;
-    --surface-2: #f8fdfd;
-    --bg: #f0fdfa;
-    --text: #1a1a2e;
-    --text-muted: #6b7280;
-    --border: #e5e7eb;
-    --border-light: #f3f4f6;
+    --surface: #162535;
+    --surface-2: #1a2f45;
+    --bg: #0a1929;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --border: rgba(6,182,212,0.22);
+    --border-light: rgba(255,255,255,0.06);
     --success: #0d9488;
     --warning: #d97706;
     --error: #dc2626;
     --gradient-brand: linear-gradient(135deg, #0891b2 0%, #06b6d4 40%, #14b8a6 100%);
     --gradient-dark: linear-gradient(160deg, #1e3a4a 0%, #234e5e 50%, #1a3d4d 100%);
-    --gradient-card: linear-gradient(135deg, #ffffff 0%, #f0fdfa 100%);
+    --gradient-card: linear-gradient(135deg, #162535 0%, #1a2f45 100%);
     --shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
     --shadow-sm: 0 2px 4px rgba(0,0,0,0.06);
     --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
@@ -61,7 +63,10 @@ html, body, [class*="css"] {
 
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header[data-testid="stHeader"] { background: transparent; }
+header[data-testid="stHeader"] { background: transparent !important; }
+
+.stApp { background: linear-gradient(160deg, #0a1929 0%, #0d2137 50%, #091825 100%) !important; }
+.main { background: transparent !important; }
 
 .main .block-container {
     padding: 1.2rem 2.5rem 4rem 2.5rem;
@@ -80,18 +85,29 @@ section[data-testid="stSidebar"] > div {
     color: #d1d5db !important;
 }
 [data-testid="stSidebar"] .stTextInput > div > div > input {
-    background: rgba(255,255,255,0.06) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    color: #f3f4f6 !important;
-    border-radius: var(--radius-xs);
+    background: #0d1e2e !important;
+    border: 1px solid rgba(6,182,212,0.25) !important;
+    color: #e2e8f0 !important;
+    border-radius: var(--radius-xs) !important;
     font-size: 0.85rem !important;
     padding: 0.55rem 0.75rem !important;
-    transition: all 0.2s ease;
+    transition: all 0.2s ease !important;
+    caret-color: #06b6d4 !important;
+}
+[data-testid="stSidebar"] .stTextInput > div > div > input::placeholder {
+    color: #4a6070 !important;
+    opacity: 1 !important;
+}
+/* Password mask dots — must be same color as text */
+[data-testid="stSidebar"] .stTextInput > div > div > input[type="password"] {
+    color: #e2e8f0 !important;
+    -webkit-text-security: disc !important;
 }
 [data-testid="stSidebar"] .stTextInput > div > div > input:focus {
-    border-color: var(--primary-light) !important;
+    border-color: #06b6d4 !important;
     box-shadow: 0 0 0 2px rgba(6,182,212,0.2) !important;
-    background: rgba(255,255,255,0.08) !important;
+    background: #0f2236 !important;
+    outline: none !important;
 }
 [data-testid="stSidebar"] .stTextInput label {
     color: #9ca3af !important;
@@ -239,19 +255,20 @@ section[data-testid="stSidebar"] > div {
     margin-top: 1.8rem;
 }
 .onboard-card {
-    background: var(--gradient-card);
-    border: 1px solid var(--border);
+    background: linear-gradient(135deg, #162535 0%, #1a3045 100%);
+    border: 1px solid rgba(6,182,212,0.2);
     border-radius: var(--radius);
-    padding: 1.6rem 1.4rem;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 1.8rem 1.6rem;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: default;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
 .onboard-card:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-md);
-    border-color: var(--primary-light);
+    transform: translateY(-5px);
+    box-shadow: 0 8px 32px rgba(6,182,212,0.15);
+    border-color: rgba(6,182,212,0.45);
 }
 .onboard-card::after {
     content: '';
@@ -260,48 +277,74 @@ section[data-testid="stSidebar"] > div {
     height: 3px;
     background: var(--gradient-brand);
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.35s ease;
 }
 .onboard-card:hover::after { opacity: 1; }
 .onboard-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 10px;
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.3rem;
-    margin-bottom: 1rem;
+    font-size: 1.4rem;
+    margin-bottom: 1.1rem;
 }
-.onboard-icon-green { background: #ecfeff; border: 1px solid #a5f3fc; }
-.onboard-icon-amber { background: #ecfeff; border: 1px solid #99f6e4; }
-.onboard-icon-blue { background: #f0fdfa; border: 1px solid #5eead4; }
-.onboard-icon-rose { background: #f0f9ff; border: 1px solid #7dd3fc; }
+.onboard-icon-green { background: rgba(6,182,212,0.15); border: 1px solid rgba(6,182,212,0.3); }
+.onboard-icon-amber { background: rgba(20,184,166,0.15); border: 1px solid rgba(20,184,166,0.3); }
+.onboard-icon-blue  { background: rgba(8,145,178,0.15);  border: 1px solid rgba(8,145,178,0.3); }
+.onboard-icon-rose  { background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.3); }
 .onboard-title {
-    font-weight: 600;
-    font-size: 0.92rem;
-    color: var(--text);
-    margin-bottom: 0.4rem;
+    font-weight: 700;
+    font-size: 1rem;
+    color: #e2e8f0 !important;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.01em;
 }
 .onboard-desc {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    line-height: 1.55;
+    font-size: 0.82rem;
+    color: #94a3b8 !important;
+    line-height: 1.65;
 }
 
 /* ── Chat Messages ────────────────────────────────────────── */
 [data-testid="stChatMessage"] {
-    background: var(--surface) !important;
-    border: 1px solid var(--border-light) !important;
+    background: #162535 !important;
+    border: 1px solid rgba(6,182,212,0.18) !important;
     border-radius: var(--radius) !important;
-    padding: 1.1rem 1.3rem !important;
-    margin-bottom: 0.8rem !important;
-    box-shadow: var(--shadow-xs) !important;
-    transition: all 0.2s ease !important;
+    padding: 1.2rem 1.4rem !important;
+    margin-bottom: 0.9rem !important;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.35) !important;
+    transition: all 0.25s ease !important;
 }
 [data-testid="stChatMessage"]:hover {
-    box-shadow: var(--shadow-sm) !important;
-    border-color: var(--border) !important;
+    box-shadow: 0 4px 24px rgba(6,182,212,0.12) !important;
+    border-color: rgba(6,182,212,0.38) !important;
+    transform: translateY(-1px) !important;
+}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] span,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] strong,
+[data-testid="stChatMessage"] em,
+[data-testid="stChatMessage"] h1,
+[data-testid="stChatMessage"] h2,
+[data-testid="stChatMessage"] h3 {
+    color: #dde6f0 !important;
+    line-height: 1.75;
+}
+[data-testid="stChatMessage"] code {
+    background: rgba(0,0,0,0.4) !important;
+    color: #67e8f9 !important;
+    border-radius: 4px !important;
+    padding: 0.1rem 0.4rem !important;
+    border: 1px solid rgba(6,182,212,0.2) !important;
+}
+[data-testid="stChatMessage"] pre {
+    background: rgba(0,0,0,0.45) !important;
+    border: 1px solid rgba(6,182,212,0.2) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
 }
 
 /* ── Source Chips ─────────────────────────────────────────── */
@@ -317,21 +360,21 @@ section[data-testid="stSidebar"] > div {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    background: #f9fafb;
-    border: 1px solid var(--border);
+    background: rgba(6,182,212,0.1);
+    border: 1px solid rgba(6,182,212,0.25);
     border-radius: var(--radius-full);
     padding: 0.2rem 0.6rem;
     font-size: 0.68rem;
-    color: var(--text-muted);
+    color: #67e8f9 !important;
     font-weight: 500;
     font-family: 'JetBrains Mono', monospace;
     transition: all 0.15s ease;
 }
-.src-chip:hover { background: #f3f4f6; color: var(--text); }
+.src-chip:hover { background: rgba(6,182,212,0.2); color: #a5f3fc !important; }
 .src-chip.learned {
-    background: #ecfeff;
-    border-color: #a5f3fc;
-    color: #0e7490;
+    background: rgba(20,184,166,0.1);
+    border-color: rgba(20,184,166,0.3);
+    color: #5eead4 !important;
 }
 
 /* ── Attachment Pill ──────────────────────────────────────── */
@@ -339,12 +382,12 @@ section[data-testid="stSidebar"] > div {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    background: #fffbeb;
-    border: 1px solid #fde68a;
+    background: rgba(251,191,36,0.1);
+    border: 1px solid rgba(251,191,36,0.3);
     border-radius: var(--radius-full);
     padding: 0.3rem 0.8rem;
     font-size: 0.78rem;
-    color: #92400e;
+    color: #fbbf24 !important;
     font-weight: 500;
     margin-bottom: 0.6rem;
 }
@@ -402,14 +445,19 @@ section[data-testid="stSidebar"] > div {
 
 /* ── Chat Input ───────────────────────────────────────────── */
 [data-testid="stChatInput"] {
+    background: #162535 !important;
     border-radius: var(--radius) !important;
-    border: 1.5px solid var(--border) !important;
+    border: 1.5px solid rgba(6,182,212,0.25) !important;
     transition: all 0.2s ease !important;
-    box-shadow: var(--shadow-xs) !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25) !important;
 }
 [data-testid="stChatInput"]:focus-within {
-    border-color: var(--primary-light) !important;
-    box-shadow: 0 0 0 3px rgba(6,182,212,0.1) !important;
+    border-color: #06b6d4 !important;
+    box-shadow: 0 0 0 3px rgba(6,182,212,0.15) !important;
+}
+[data-testid="stChatInput"] textarea {
+    color: #e2e8f0 !important;
+    background: transparent !important;
 }
 
 /* ── Section Labels ───────────────────────────────────────── */
@@ -427,21 +475,22 @@ div.stButton > button {
     transition: all 0.2s ease !important;
 }
 div[data-testid="stHorizontalBlock"] .stButton > button {
-    background: var(--surface) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text) !important;
+    background: #162535 !important;
+    border: 1px solid rgba(6,182,212,0.2) !important;
+    color: #cbd5e1 !important;
     border-radius: var(--radius-sm) !important;
-    font-size: 0.8rem !important;
+    font-size: 0.82rem !important;
     font-weight: 400 !important;
     text-align: left !important;
-    padding: 0.7rem 1rem !important;
-    box-shadow: var(--shadow-xs) !important;
+    padding: 0.75rem 1rem !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
 }
 div[data-testid="stHorizontalBlock"] .stButton > button:hover {
-    border-color: var(--primary-light) !important;
-    background: var(--surface-2) !important;
-    box-shadow: var(--shadow-sm) !important;
-    transform: translateY(-1px) !important;
+    border-color: #06b6d4 !important;
+    background: #1a2f45 !important;
+    box-shadow: 0 4px 16px rgba(6,182,212,0.15) !important;
+    transform: translateY(-2px) !important;
+    color: #e2e8f0 !important;
 }
 
 /* ── Empty Chat State ─────────────────────────────────────── */
@@ -450,33 +499,33 @@ div[data-testid="stHorizontalBlock"] .stButton > button:hover {
     padding: 3rem 1rem 1.5rem;
 }
 .empty-chat-icon {
-    width: 56px;
-    height: 56px;
-    margin: 0 auto 1rem;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 16px;
+    width: 62px;
+    height: 62px;
+    margin: 0 auto 1.2rem;
+    background: linear-gradient(135deg, #0891b2, #14b8a6);
+    border-radius: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.5rem;
+    font-size: 1.7rem;
+    box-shadow: 0 8px 28px rgba(8,145,178,0.35);
 }
 .empty-chat-title {
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 0.3rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #e2e8f0 !important;
+    margin-bottom: 0.4rem;
 }
 .empty-chat-desc {
-    font-size: 0.83rem;
-    color: var(--text-muted);
+    font-size: 0.85rem;
+    color: #64748b !important;
 }
 
 /* ── Scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+::-webkit-scrollbar-track { background: #0a1929; }
+::-webkit-scrollbar-thumb { background: #1e4060; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #0891b2; }
 
 /* ── Animations ───────────────────────────────────────────── */
 @keyframes fadeUp {
@@ -488,6 +537,102 @@ div[data-testid="stHorizontalBlock"] .stButton > button:hover {
 .fade-up-d2 { animation-delay: 0.1s; opacity: 0; }
 .fade-up-d3 { animation-delay: 0.15s; opacity: 0; }
 .fade-up-d4 { animation-delay: 0.2s; opacity: 0; }
+
+/* ════════════════════════════════════════════════════════════
+   GLOBAL CONTRAST ENFORCEMENT
+   Rule: white/light bg → dark text | dark bg → light text
+   ════════════════════════════════════════════════════════════ */
+
+/* ── All text inputs / textareas (main area + sidebar) ─────── */
+.stTextInput > div > div > input,
+.stTextArea > div > div > textarea,
+.stNumberInput > div > div > input,
+.stSelectbox > div > div > div {
+    background: #0d1e2e !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(6,182,212,0.25) !important;
+    border-radius: 6px !important;
+    caret-color: #06b6d4 !important;
+}
+.stTextInput > div > div > input::placeholder,
+.stTextArea > div > div > textarea::placeholder {
+    color: #4a6070 !important;
+    opacity: 1 !important;
+}
+/* Password field dots — must match text color to be visible */
+input[type="password"] {
+    color: #e2e8f0 !important;
+    background: #0d1e2e !important;
+}
+input[type="password"]::placeholder {
+    color: #4a6070 !important;
+}
+input[type="text"], input[type="email"], input[type="search"] {
+    color: #e2e8f0 !important;
+    background: #0d1e2e !important;
+}
+
+/* ── File uploader dark styling ─────────────────────────────── */
+[data-testid="stFileUploader"] {
+    background: rgba(13,30,46,0.8) !important;
+    border: 1px dashed rgba(6,182,212,0.3) !important;
+    border-radius: 8px !important;
+}
+[data-testid="stFileUploader"] section {
+    background: transparent !important;
+}
+[data-testid="stFileUploader"] label,
+[data-testid="stFileUploader"] span,
+[data-testid="stFileUploader"] p,
+[data-testid="stFileUploader"] small {
+    color: #94a3b8 !important;
+}
+[data-testid="stFileUploader"] button {
+    background: rgba(6,182,212,0.15) !important;
+    color: #67e8f9 !important;
+    border: 1px solid rgba(6,182,212,0.3) !important;
+    border-radius: 6px !important;
+}
+
+/* ── Streamlit default white containers fix ─────────────────── */
+[data-testid="stAppViewBlockContainer"],
+[data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"] {
+    background: transparent !important;
+}
+
+/* ── Input focus state (all inputs) ─────────────────────────── */
+.stTextInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+    border-color: #06b6d4 !important;
+    box-shadow: 0 0 0 2px rgba(6,182,212,0.18) !important;
+    outline: none !important;
+    background: #0f2236 !important;
+    color: #e2e8f0 !important;
+}
+
+/* ── Labels for all form elements ─────────────────────────────  */
+.stTextInput label,
+.stTextArea label,
+.stSelectbox label,
+.stFileUploader label {
+    color: #94a3b8 !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+}
+
+/* ── Streamlit alerts / toasts ─────────────────────────────── */
+[data-testid="stAlert"] {
+    background: #162535 !important;
+    border-left-color: #06b6d4 !important;
+    color: #e2e8f0 !important;
+}
+[data-testid="stAlert"] p { color: #e2e8f0 !important; }
+
+/* ── "Not connected" / status pill text ─────────────────────── */
+.stCaption, .stCaption p {
+    color: #64748b !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -504,6 +649,8 @@ def init_session_state():
         "github_repo": "",
         "github_token": "",
         "ingested": False,
+        "last_chroma_update": None,
+        "workspace_id": "",
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -514,26 +661,36 @@ init_session_state()
 
 
 # ─── Core Functions ───────────────────────────────────────────
-def apply_user_config():
-    import os
-    import config
-    config.GROQ_API_KEY = st.session_state.groq_api_key
-    config.GITHUB_REPO = st.session_state.github_repo
-    config.GITHUB_TOKEN = st.session_state.github_token
-    os.environ["GROQ_API_KEY"] = st.session_state.groq_api_key
-    os.environ["GITHUB_REPO"] = st.session_state.github_repo
-    os.environ["GITHUB_TOKEN"] = st.session_state.github_token
+def _slugify_workspace(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-")
+    return cleaned[:48] if cleaned else ""
+
+
+def _workspace_defaults() -> tuple[Path, str, str]:
+    ws = st.session_state.workspace_id or "default"
+    db_dir = Path(__file__).parent / "chroma_db" / "workspaces" / ws
+    main_collection = "dataguru_knowledge"
+    learned_collection = "dataguru_learned_patterns"
+    return db_dir, main_collection, learned_collection
 
 
 def run_ingest_web():
     import asyncio
-    apply_user_config()
     from ingest import ingest_documents
     import retriever as _retriever
 
     with st.spinner("Fetching & indexing documents from your repository..."):
         try:
-            asyncio.run(ingest_documents())
+            db_dir, main_collection, learned_collection = _workspace_defaults()
+            asyncio.run(
+                ingest_documents(
+                    github_repo=st.session_state.github_repo,
+                    github_token=st.session_state.github_token,
+                    db_dir=db_dir,
+                    collection_name=main_collection,
+                    learned_collection_name=learned_collection,
+                )
+            )
             _retriever.reset_singletons()
             st.session_state.ingested = True
             st.toast("Knowledge base synced!", icon="✅")
@@ -580,14 +737,60 @@ def handle_file_upload(uploaded_file):
 def get_learned_patterns_count():
     try:
         from learning_agent import get_learned_count
-        return get_learned_count()
+        db_dir, _, learned_collection = _workspace_defaults()
+        return get_learned_count(
+            db_dir=db_dir,
+            learned_collection_name=learned_collection,
+        )
     except Exception:
         return 0
 
 
-def get_answer(query: str) -> tuple[str, list[dict]]:
-    apply_user_config()
+def update_chroma_from_current_session():
+    from learning_agent import learn_from_session, store_session_memory_embeddings, get_learned_count
+    import retriever as _retriever
 
+    chat_history = st.session_state.full_session_history
+    attachment = st.session_state.attachment
+    db_dir, _, learned_collection = _workspace_defaults()
+
+    with st.spinner("Updating ChromaDB with current chat and attachment embeddings..."):
+        patterns = learn_from_session(
+            chat_history,
+            attachment,
+            db_dir=db_dir,
+            learned_collection_name=learned_collection,
+            groq_api_key=st.session_state.groq_api_key,
+        )
+        memory_result = store_session_memory_embeddings(
+            chat_history,
+            attachment,
+            db_dir=db_dir,
+            learned_collection_name=learned_collection,
+        )
+        _retriever.reset_singletons()
+
+    total_patterns = get_learned_count(
+        db_dir=db_dir,
+        learned_collection_name=learned_collection,
+    )
+    st.session_state.last_chroma_update = {
+        "patterns_added": len(patterns),
+        "memory_stored": bool(memory_result.get("stored")),
+        "entry_id": memory_result.get("entry_id", ""),
+        "reason": memory_result.get("reason", ""),
+        "message_pairs": memory_result.get("message_pairs", 0),
+        "has_attachment": bool(memory_result.get("has_attachment")),
+        "total_patterns": total_patterns,
+    }
+
+    if len(patterns) > 0 or memory_result.get("stored"):
+        st.toast("ChromaDB updated from this session.", icon="✅")
+    else:
+        st.toast("No new embedding stored (already saved or no chat yet).", icon="ℹ️")
+
+
+def get_answer(query: str) -> tuple[str, list[dict]]:
     from retriever import retrieve
     from llm_client import build_rag_prompt, GROQ_MODEL
     from file_handler import build_search_query_from_attachment
@@ -600,7 +803,13 @@ def get_answer(query: str) -> tuple[str, list[dict]]:
         attachment_query = build_search_query_from_attachment(attachment)
         search_query = f"{query} {attachment_query}"
 
-    chunks = retrieve(search_query)
+    db_dir, main_collection, learned_collection = _workspace_defaults()
+    chunks = retrieve(
+        search_query,
+        db_dir=db_dir,
+        collection_name=main_collection,
+        learned_collection_name=learned_collection,
+    )
     chat_history = st.session_state.chat_history
     messages = build_rag_prompt(query, chunks, chat_history, attachment)
 
@@ -659,22 +868,47 @@ with st.sidebar:
     groq_key = st.text_input("Groq API Key", value=st.session_state.groq_api_key, type="password", placeholder="gsk_...")
     github_repo = st.text_input("GitHub Repo", value=st.session_state.github_repo, placeholder="owner/repo-name")
     github_token = st.text_input("GitHub Token", value=st.session_state.github_token, type="password", placeholder="ghp_... (private repos)")
+    workspace_name = st.text_input(
+        "Workspace Name",
+        value=st.session_state.workspace_id,
+        placeholder="my-team-workspace",
+        help="Each workspace has isolated credentials and Chroma knowledge base.",
+    )
 
     if st.button("Connect", use_container_width=True, type="primary"):
         if not groq_key:
             st.toast("Groq API Key is required", icon="⚠️")
         elif not github_repo:
             st.toast("GitHub Repo is required", icon="⚠️")
+        elif not workspace_name.strip():
+            st.toast("Workspace Name is required for multi-user isolation", icon="⚠️")
         else:
             repo_clean = github_repo.replace("https://github.com/", "").replace("http://github.com/", "").strip("/")
+            workspace_id = _slugify_workspace(workspace_name)
+            if not workspace_id:
+                st.toast("Workspace Name must include letters/numbers", icon="⚠️")
+                st.stop()
             st.session_state.groq_api_key = groq_key
             st.session_state.github_repo = repo_clean
             st.session_state.github_token = github_token
+            previous_workspace = st.session_state.workspace_id
+            st.session_state.workspace_id = workspace_id
+            if previous_workspace and previous_workspace != workspace_id:
+                st.session_state.messages = []
+                st.session_state.chat_history = []
+                st.session_state.full_session_history = []
+                st.session_state.attachment = None
+                st.session_state.last_chroma_update = None
+                st.session_state.ingested = False
             st.session_state.configured = True
             st.rerun()
 
     if st.session_state.configured:
-        st.markdown(f'<div class="pill-connected"><span class="pulse-dot"></span> {st.session_state.github_repo.split("/")[-1]}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="pill-connected"><span class="pulse-dot"></span> '
+            f'{st.session_state.workspace_id} • {st.session_state.github_repo.split("/")[-1]}</div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.markdown('<div class="pill-disconnected">○ Not connected</div>', unsafe_allow_html=True)
 
@@ -743,6 +977,27 @@ with st.sidebar:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        can_update = len(st.session_state.full_session_history) >= 2
+        if st.button("Update Chroma from Chat + File", use_container_width=True, disabled=not can_update):
+            update_chroma_from_current_session()
+            st.rerun()
+
+        if not can_update:
+            st.caption("Ask at least one question first to store embeddings.")
+
+        status = st.session_state.last_chroma_update
+        if status:
+            icon = "✅" if (status["patterns_added"] > 0 or status["memory_stored"]) else "ℹ️"
+            st.caption(
+                f"{icon} Last update -> patterns +{status['patterns_added']}, "
+                f"session embedding: {'stored' if status['memory_stored'] else 'not stored'}, "
+                f"pairs: {status['message_pairs']}, "
+                f"attachment: {'yes' if status['has_attachment'] else 'no'}, "
+                f"total patterns: {status['total_patterns']}"
+            )
+            if status.get("reason"):
+                st.caption(f"Note: {status['reason']}")
     else:
         st.caption("Available after sync")
 
@@ -818,8 +1073,8 @@ if not st.session_state.configured:
 
 # ─── Gated: Not Ingested ─────────────────────────────────────
 if not st.session_state.ingested:
-    from config import CHROMA_DB_DIR
-    if CHROMA_DB_DIR.exists() and any(CHROMA_DB_DIR.iterdir()):
+    db_dir, _, _ = _workspace_defaults()
+    if db_dir.exists() and any(db_dir.iterdir()):
         st.session_state.ingested = True
     else:
         st.markdown("""

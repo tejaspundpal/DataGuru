@@ -13,6 +13,7 @@ and the learned_patterns collection — making the system smarter over time.
 
 import sys
 import json
+import os
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,19 +77,23 @@ Extract incident cards as JSON (return ONLY the JSON array, no other text):"""
 # Core Learning Functions
 # ─────────────────────────────────────────────────────────────
 
-def _get_groq_client() -> Groq:
+def _get_groq_client(groq_api_key: str | None = None) -> Groq:
     """Get Groq client with validated API key."""
-    if not GROQ_API_KEY:
+    api_key = (groq_api_key or "").strip() or os.getenv("GROQ_API_KEY", "").strip() or GROQ_API_KEY
+    if not api_key:
         raise RuntimeError("GROQ_API_KEY not configured. Run 'setup' command.")
-    return Groq(api_key=GROQ_API_KEY)
+    return Groq(api_key=api_key)
 
 
-def _get_learned_collection():
+def _get_learned_collection(
+    db_dir: Path = CHROMA_DB_DIR,
+    learned_collection_name: str = LEARNED_COLLECTION_NAME,
+):
     """Get or create the learned_patterns ChromaDB collection."""
-    CHROMA_DB_DIR.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+    db_dir.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(db_dir))
     return client.get_or_create_collection(
-        name=LEARNED_COLLECTION_NAME,
+        name=learned_collection_name,
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -125,7 +130,11 @@ def _build_attachment_text(attachment: dict | None) -> str:
     return "\n".join(parts)
 
 
-def _extract_patterns(chat_history: list[dict], attachment: dict | None) -> list[dict]:
+def _extract_patterns(
+    chat_history: list[dict],
+    attachment: dict | None,
+    groq_api_key: str | None = None,
+) -> list[dict]:
     """Use LLM to extract incident patterns from the conversation."""
     conversation_text = _build_conversation_text(chat_history, attachment)
     attachment_text = _build_attachment_text(attachment)
@@ -135,7 +144,7 @@ def _extract_patterns(chat_history: list[dict], attachment: dict | None) -> list
         attachment=attachment_text,
     )
 
-    client = _get_groq_client()
+    client = _get_groq_client(groq_api_key=groq_api_key)
 
     try:
         response = client.chat.completions.create(
@@ -217,6 +226,17 @@ def _pattern_to_document(pattern: dict) -> str:
     return "\n".join(parts)
 
 
+def _build_session_memory_document(chat_history: list[dict], attachment: dict | None) -> str:
+    """Build a searchable text document from the current session and optional attachment."""
+    conversation = _build_conversation_text(chat_history, attachment)
+    attachment_text = _build_attachment_text(attachment)
+    return (
+        "# Session Memory Snapshot\n"
+        f"Conversation:\n{conversation}\n\n"
+        f"Attachment Summary:\n{attachment_text}\n"
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────
@@ -224,6 +244,9 @@ def _pattern_to_document(pattern: dict) -> str:
 def learn_from_session(
     chat_history: list[dict],
     attachment: dict | None = None,
+    db_dir: Path = CHROMA_DB_DIR,
+    learned_collection_name: str = LEARNED_COLLECTION_NAME,
+    groq_api_key: str | None = None,
 ) -> list[dict]:
     """
     Extract and store learned patterns from a completed chat session.
@@ -241,13 +264,16 @@ def learn_from_session(
         return []
 
     # Step 1: Extract patterns via LLM
-    patterns = _extract_patterns(chat_history, attachment)
+    patterns = _extract_patterns(chat_history, attachment, groq_api_key=groq_api_key)
     if not patterns:
         return []
 
     # Step 2: Embed and deduplicate
     model = _get_embedding_model()
-    collection = _get_learned_collection()
+    collection = _get_learned_collection(
+        db_dir=db_dir,
+        learned_collection_name=learned_collection_name,
+    )
 
     stored_patterns = []
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -282,10 +308,98 @@ def learn_from_session(
     return stored_patterns
 
 
-def get_learned_count() -> int:
+def get_learned_count(
+    db_dir: Path = CHROMA_DB_DIR,
+    learned_collection_name: str = LEARNED_COLLECTION_NAME,
+) -> int:
     """Return the total number of learned patterns stored."""
     try:
-        collection = _get_learned_collection()
+        collection = _get_learned_collection(
+            db_dir=db_dir,
+            learned_collection_name=learned_collection_name,
+        )
         return collection.count()
     except Exception:
         return 0
+
+
+def store_session_memory_embeddings(
+    chat_history: list[dict],
+    attachment: dict | None = None,
+    db_dir: Path = CHROMA_DB_DIR,
+    learned_collection_name: str = LEARNED_COLLECTION_NAME,
+) -> dict:
+    """
+    Store the current conversation and optional attached file summary as an embedding.
+
+    Returns:
+        {
+            "stored": bool,
+            "entry_id": str,
+            "message_pairs": int,
+            "has_attachment": bool,
+            "reason": str
+        }
+    """
+    qa_pairs = len(chat_history) // 2
+    if qa_pairs == 0:
+        return {
+            "stored": False,
+            "entry_id": "",
+            "message_pairs": 0,
+            "has_attachment": bool(attachment),
+            "reason": "No chat messages yet.",
+        }
+
+    doc_text = _build_session_memory_document(chat_history, attachment)
+    doc_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()[:20]
+    entry_id = f"session_{doc_hash}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    try:
+        collection = _get_learned_collection(
+            db_dir=db_dir,
+            learned_collection_name=learned_collection_name,
+        )
+        existing = collection.get(ids=[entry_id], include=[])
+        if existing.get("ids"):
+            return {
+                "stored": False,
+                "entry_id": entry_id,
+                "message_pairs": qa_pairs,
+                "has_attachment": bool(attachment),
+                "reason": "This session snapshot is already stored.",
+            }
+
+        model = _get_embedding_model()
+        embedding = model.encode([doc_text]).tolist()[0]
+        metadata = {
+            "source": "🧠 Learned Session Memory",
+            "technology": "General",
+            "doc_name": entry_id,
+            "learned_at": timestamp,
+            "pattern_type": "session_memory",
+            "has_attachment": "yes" if attachment else "no",
+            "message_pairs": str(qa_pairs),
+        }
+        collection.add(
+            embeddings=[embedding],
+            documents=[doc_text],
+            metadatas=[metadata],
+            ids=[entry_id],
+        )
+        return {
+            "stored": True,
+            "entry_id": entry_id,
+            "message_pairs": qa_pairs,
+            "has_attachment": bool(attachment),
+            "reason": "Stored successfully.",
+        }
+    except Exception as e:
+        return {
+            "stored": False,
+            "entry_id": entry_id,
+            "message_pairs": qa_pairs,
+            "has_attachment": bool(attachment),
+            "reason": f"Failed to store session memory: {e}",
+        }

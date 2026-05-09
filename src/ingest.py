@@ -15,6 +15,14 @@ import logging
 import asyncio
 from pathlib import Path
 
+# ── Force UTF-8 stdout/stderr on Windows (fixes cp1252 codec errors) ──
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except AttributeError:
+        pass  # Python < 3.7 fallback — safe to ignore
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 import chromadb
@@ -28,22 +36,43 @@ from config import (
     COLLECTION_NAME,
     CHUNK_SIZE_CHARS,
     CHUNK_OVERLAP_CHARS,
-    GITHUB_REPO
+    GITHUB_REPO,
+    GITHUB_TOKEN,
+    LEARNED_COLLECTION_NAME,
 )
 
 
+def _get_runtime_repo() -> str:
+    """
+    Resolve repository dynamically so UI/CLI credential updates take effect
+    without needing a full process restart.
+    """
+    repo = os.getenv("GITHUB_REPO", "").strip()
+    if not repo:
+        try:
+            import config
+            repo = getattr(config, "GITHUB_REPO", "")
+        except Exception:
+            repo = GITHUB_REPO
+    return repo.replace("https://github.com/", "").replace("http://github.com/", "").strip("/")
+
+
 # Step 1: Load Documents via MCP Server
-async def load_documents_via_mcp() -> list[dict]:
+async def load_documents_via_mcp(github_repo: str, github_token: str = "") -> list[dict]:
     """
     Connect to the local GitHub MCP server over stdio,
     and request it to fetch all markdown files from the target GitHub repo.
     """
     server_script = Path(__file__).parent / "mcp_github_server.py"
 
+    child_env = os.environ.copy()
+    child_env["GITHUB_REPO"] = github_repo
+    child_env["GITHUB_TOKEN"] = github_token or ""
+
     server_params = StdioServerParameters(
         command=sys.executable,  # Uses the current Python interpreter (.venv)
         args=[str(server_script)],
-        env=os.environ.copy()
+        env=child_env,
     )
 
     print(f"  [MCP] Connecting to GitHub MCP Server...")
@@ -120,7 +149,13 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE_CHARS, overlap: int = CHU
 
 
 # Step 3 + 4: Embed & Store
-async def ingest_documents():
+async def ingest_documents(
+    github_repo: str | None = None,
+    github_token: str | None = None,
+    db_dir: Path = CHROMA_DB_DIR,
+    collection_name: str = COLLECTION_NAME,
+    learned_collection_name: str = LEARNED_COLLECTION_NAME,
+):
     """
     Main ingestion pipeline:
     1. Fetch all docs from GitHub via MCP Server
@@ -132,25 +167,32 @@ async def ingest_documents():
     print("  DataGuru Knowledge Assistant — Data Ingestion (MCP Client)")
     print("=" * 62)
 
-    if not GITHUB_REPO:
+    github_repo = (github_repo or _get_runtime_repo()).strip()
+    github_token = github_token if github_token is not None else os.getenv("GITHUB_TOKEN", "").strip() or GITHUB_TOKEN
+    if not github_repo:
         print("\n  ❌ ERROR: GITHUB_REPO not set in .env or config.py.")
         print("  Please set it (e.g. yourusername/dataguru-knowledge-base) and try again.")
         return
 
     # ── Init ChromaDB ─────────────────────────────────────────
     print("\n[1/4] Initializing ChromaDB...")
-    CHROMA_DB_DIR.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+    db_dir.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(db_dir))
 
     # Fresh start — drop existing collection if present
     try:
-        client.delete_collection(COLLECTION_NAME)
+        client.delete_collection(collection_name)
         print("  Cleared existing collection.")
+    except Exception:
+        pass
+    try:
+        client.delete_collection(learned_collection_name)
+        print("  Cleared learned patterns collection.")
     except Exception:
         pass
 
     collection = client.create_collection(
-        name=COLLECTION_NAME,
+        name=collection_name,
         metadata={"hnsw:space": "cosine"},   # cosine similarity for semantic search
     )
 
@@ -160,8 +202,8 @@ async def ingest_documents():
     print("  Model ready.")
 
     # ── Load Documents via MCP ────────────────────────────────
-    print(f"\n[3/4] Requesting documents from GitHub repo: {GITHUB_REPO} via MCP Server...")
-    documents = await load_documents_via_mcp()
+    print(f"\n[3/4] Requesting documents from GitHub repo: {github_repo} via MCP Server...")
+    documents = await load_documents_via_mcp(github_repo=github_repo, github_token=github_token or "")
 
     if not documents:
         print("\n  ERROR: No documents retrieved from MCP Server.")
@@ -208,7 +250,7 @@ async def ingest_documents():
         )
 
         total_chunks += len(chunks)
-        print(f"  ✓  {source:<55} [{file_type}] → {len(chunks):>2} chunks")
+        print(f"  [OK] {source:<53} [{file_type}] -> {len(chunks):>2} chunks")
 
     # ── Summary ───────────────────────────────────────────────
     # Count file types
@@ -218,11 +260,11 @@ async def ingest_documents():
         type_counts[ft] = type_counts.get(ft, 0) + 1
 
     print(f"\n{'=' * 62}")
-    print(f"  ✅ Ingestion complete via MCP!")
+    print(f"  [DONE] Ingestion complete via MCP!")
     print(f"  Documents : {len(documents)}")
     print(f"  Chunks    : {total_chunks}")
     print(f"  File types: {', '.join(f'{k}({v})' for k, v in sorted(type_counts.items()))}")
-    print(f"  Vector DB : {CHROMA_DB_DIR}")
+    print(f"  Vector DB : {db_dir}")
     print(f"{'=' * 62}\n")
 
 

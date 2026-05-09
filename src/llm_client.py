@@ -14,14 +14,13 @@ Key design decisions:
 """
 
 import sys
+import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from groq import Groq
-from config import GROQ_MODEL, GROQ_API_KEY
-
-client = Groq(api_key=GROQ_API_KEY)
+from config import GROQ_MODEL
 
 # ─────────────────────────────────────────────────────────────
 # System Prompt
@@ -152,8 +151,21 @@ def stream_answer(query: str, retrieved_chunks: list[dict], chat_history: list[d
         return
 
     messages = build_rag_prompt(query, retrieved_chunks, chat_history, attachment)
+    # Resolve key at call time so setup/credential updates are picked up immediately.
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        try:
+            import config
+            api_key = getattr(config, "GROQ_API_KEY", "").strip()
+        except Exception:
+            api_key = ""
+
+    if not api_key:
+        yield "Groq API key is missing. Run setup and provide a valid key."
+        return
 
     try:
+        client = Groq(api_key=api_key)
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=messages,

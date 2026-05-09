@@ -152,3 +152,19 @@ python src/main.py
 ## 👤 Author
 
 **Tejas Pundpal** — [LinkedIn](https://linkedin.com/in/tejaspundpal)
+
+---
+
+## ☁️ Deployment Checklist (Render)
+
+This repo includes `render.yaml` with production defaults for DataGuru.
+
+- **Start command**: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`
+- **Persistent storage**: mounted to `chroma_db/` so workspace vector DB data survives restarts
+- **Compute plan**: set to `standard` (recommended minimum for sentence-transformers workloads)
+- **Platform env vars**: only optional app defaults; users should enter their own credentials in UI
+- **Git ignore**: workspace vector data is excluded (`chroma_db/workspaces/`)
+
+### Notes
+- `run_dataguru.bat` is for local Windows usage only, not cloud runtime.
+- For higher concurrent usage, increase plan size (CPU/RAM) from Render dashboard.

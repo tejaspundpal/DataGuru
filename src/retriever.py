@@ -12,8 +12,6 @@ across all queries in a session for performance.
 """
 
 import sys
-import os
-import logging
 from pathlib import Path
 
 
@@ -22,15 +20,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 import chromadb
 from sentence_transformers import SentenceTransformer
 from config import (
-    CHROMA_DB_DIR, COLLECTION_NAME, EMBEDDING_MODEL,
-    TOP_K, SIMILARITY_THRESHOLD,
-    LEARNED_COLLECTION_NAME, LEARNED_TOP_K,
+    CHROMA_DB_DIR,
+    COLLECTION_NAME,
+    EMBEDDING_MODEL,
+    TOP_K,
+    SIMILARITY_THRESHOLD,
+    LEARNED_COLLECTION_NAME,
+    LEARNED_TOP_K,
 )
 
-# ── Singletons (loaded once per session) ─────────────────────
+# ── Singletons (loaded once per workspace) ───────────────────
 _model: SentenceTransformer | None = None
-_collection = None
-_learned_collection = None
+_collections: dict[tuple[str, str], object] = {}
+_learned_collections: dict[tuple[str, str], object | None] = {}
 
 
 def get_model() -> SentenceTransformer:
@@ -40,40 +42,50 @@ def get_model() -> SentenceTransformer:
     return _model
 
 
-def get_collection():
-    global _collection
-    if _collection is None:
-        client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
-        _collection = client.get_collection(COLLECTION_NAME)
-    return _collection
+def get_collection(db_dir: Path = CHROMA_DB_DIR, collection_name: str = COLLECTION_NAME):
+    key = (str(db_dir), collection_name)
+    if key not in _collections:
+        client = chromadb.PersistentClient(path=str(db_dir))
+        _collections[key] = client.get_collection(collection_name)
+    return _collections[key]
 
 
-def get_learned_collection():
+def get_learned_collection(
+    db_dir: Path = CHROMA_DB_DIR,
+    learned_collection_name: str = LEARNED_COLLECTION_NAME,
+):
     """Get the learned patterns collection (returns None if it doesn't exist yet)."""
-    global _learned_collection
-    if _learned_collection is None:
+    key = (str(db_dir), learned_collection_name)
+    if key not in _learned_collections:
         try:
-            client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
-            _learned_collection = client.get_collection(LEARNED_COLLECTION_NAME)
+            client = chromadb.PersistentClient(path=str(db_dir))
+            _learned_collections[key] = client.get_collection(learned_collection_name)
         except Exception:
             # Collection doesn't exist yet — no patterns learned
+            _learned_collections[key] = None
             return None
-    return _learned_collection
+    return _learned_collections[key]
 
 
 def reset_singletons():
     """Call this after re-ingestion to force reload of collections."""
-    global _model, _collection, _learned_collection
+    global _model, _collections, _learned_collections
     _model = None
-    _collection = None
-    _learned_collection = None
+    _collections = {}
+    _learned_collections = {}
 
 
 # ─────────────────────────────────────────────────────────────
 # Main retrieval function
 # ─────────────────────────────────────────────────────────────
 
-def retrieve(query: str, top_k: int = TOP_K) -> list[dict]:
+def retrieve(
+    query: str,
+    top_k: int = TOP_K,
+    db_dir: Path = CHROMA_DB_DIR,
+    collection_name: str = COLLECTION_NAME,
+    learned_collection_name: str = LEARNED_COLLECTION_NAME,
+) -> list[dict]:
     """
     Retrieves the top-K most semantically similar chunks for a query.
     Searches BOTH the main knowledge base and learned patterns collection.
@@ -99,7 +111,7 @@ def retrieve(query: str, top_k: int = TOP_K) -> list[dict]:
     retrieved = []
 
     # ── Search main knowledge base ───────────────────────────
-    collection = get_collection()
+    collection = get_collection(db_dir=db_dir, collection_name=collection_name)
     results = collection.query(
         query_embeddings=query_vector,
         n_results=top_k,
@@ -121,7 +133,10 @@ def retrieve(query: str, top_k: int = TOP_K) -> list[dict]:
             })
 
     # ── Search learned patterns ───────────────────────────────
-    learned_col = get_learned_collection()
+    learned_col = get_learned_collection(
+        db_dir=db_dir,
+        learned_collection_name=learned_collection_name,
+    )
     if learned_col and learned_col.count() > 0:
         try:
             learned_results = learned_col.query(

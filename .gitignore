@@ -1,6 +1,7 @@
 .venv/
 .env
 chroma_db/
+chroma_db/workspaces/
 __pycache__/
 *.pyc
 .DS_Store
