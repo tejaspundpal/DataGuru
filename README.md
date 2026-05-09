@@ -9,12 +9,14 @@ Unlike general-purpose AI, DataGuru only answers from **your private documentati
 ## 🚀 Key Features
 
 - **Premium Web UI**: Beautiful Streamlit interface with dark-teal theme, animated onboarding, file upload, and streaming responses.
+- **Multi-User Workspace Isolation**: Each user selects a `Workspace Name`; credentials, ingestion, retrieval, and learned memory are isolated per workspace path.
 - **CLI Mode**: Full-featured terminal interface with file attachment, learning stats, and skill generation commands.
 - **MCP Integration**: Uses the **Model Context Protocol (MCP)** to securely fetch documents from GitHub, decoupling storage from application logic.
 - **Multi-Format Ingestion**: Supports PDF, DOCX, Markdown, SQL, JSON, YAML, Python, shell scripts, and more.
 - **Semantic Search**: Local vector embeddings find the most relevant chunks based on *meaning*, not keywords.
 - **Source Citations**: Every answer includes the exact file and relevance score.
 - **Self-Learning (Level 1)**: Passively learns patterns from your Q&A sessions and stores them for future retrieval.
+- **Session Embedding Updates (UI)**: "Update Chroma from Chat + File" stores current conversation + optional attachment context in ChromaDB with status feedback.
 - **Skill Generation (Level 2)**: Automatically generates reusable "skill documents" when enough similar patterns are detected.
 - **File Attachment**: Attach logs, SQL, configs, etc. for contextual analysis against the knowledge base.
 - **Zero Hallucination**: Strictly grounded — only answers from retrieved context.
@@ -27,10 +29,10 @@ Unlike general-purpose AI, DataGuru only answers from **your private documentati
 1. **Ingestion (via MCP)**:
     - `ingest.py` connects to `mcp_github_server.py` over stdio using the MCP protocol.
     - The MCP server fetches files from a configured GitHub repository (supports PDF, DOCX, and text formats).
-    - Documents are chunked with sliding-window overlap, embedded into 384-dim vectors using **all-MiniLM-L6-v2**, and stored in **ChromaDB**.
+    - Documents are chunked with sliding-window overlap, embedded into 384-dim vectors using **all-MiniLM-L6-v2**, and stored in **workspace-scoped ChromaDB**.
 2. **Retrieval**:
     - User queries are embedded with the same local model.
-    - Cosine similarity search in ChromaDB retrieves the top-K most relevant chunks (configurable threshold).
+    - Cosine similarity search in workspace ChromaDB retrieves the top-K most relevant chunks (configurable threshold).
     - Also searches the learned patterns collection for previously captured insights.
 3. **Generation**:
     - Retrieved chunks + chat history + optional file attachment are injected into a grounding prompt.
@@ -61,6 +63,8 @@ Unlike general-purpose AI, DataGuru only answers from **your private documentati
 ```text
 DataGuru/
 ├── app.py                    # Streamlit Web UI (premium design)
+├── render.yaml               # Render deployment blueprint
+├── run_dataguru.bat          # One-click Windows launcher (local only)
 ├── src/
 │   ├── main.py               # CLI entry point and chat loop
 │   ├── ingest.py             # MCP Client: connects to server, embeds, stores
@@ -72,7 +76,8 @@ DataGuru/
 │   ├── learning_agent.py     # Self-learning: extracts patterns from sessions
 │   ├── skill_generator.py    # Generates skill documents from learned patterns
 │   └── user_config.py        # Per-user credential management
-├── chroma_db/                # Local persistent vector store (auto-created)
+├── chroma_db/                # Persistent vector store (workspace-scoped)
+│   └── workspaces/<id>/      # Isolated DB per user workspace
 ├── learned_skills/           # Generated skill documents (auto-created)
 ├── requirements.txt          # Project dependencies
 └── .env                      # API keys and config (user-created)
@@ -104,7 +109,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure Credentials
+### 3. Configure Credentials (Optional Defaults)
 Create a `.env` file in the project root:
 ```env
 GROQ_API_KEY=your_groq_api_key
@@ -112,13 +117,19 @@ GITHUB_REPO=owner/repo-name
 GITHUB_TOKEN=ghp_xxx  # Optional for public repos
 ```
 
-Or configure interactively via the Web UI sidebar or `setup` command in CLI.
+You can also configure interactively via the Web UI sidebar or `setup` command in CLI.
+
+For deployed multi-user usage, users should enter their own credentials in UI.
 
 ### 4. Launch Web UI (Recommended)
 ```bash
 streamlit run app.py
 ```
-The UI will guide you through syncing documents and chatting.
+The UI will guide you through:
+- entering Groq key, GitHub repo, optional token
+- entering a **Workspace Name** (required for isolated data)
+- syncing docs into that workspace
+- optionally updating Chroma from current chat + attached file
 
 ### 5. Launch CLI
 ```bash
@@ -168,3 +179,4 @@ This repo includes `render.yaml` with production defaults for DataGuru.
 ### Notes
 - `run_dataguru.bat` is for local Windows usage only, not cloud runtime.
 - For higher concurrent usage, increase plan size (CPU/RAM) from Render dashboard.
+- Workspace isolation depends on users selecting different workspace names.
