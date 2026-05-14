@@ -70,22 +70,24 @@ It also integrates with **Jira** to analyze support tickets — identifying erro
 DataGuru/
 ├── app.py                    # Streamlit Web UI (single-user, premium design)
 ├── run_dataguru.bat          # One-click Windows launcher
+├── .env.example              # Template for environment variables
+├── requirements.txt          # Project dependencies
+├── test_mcp.py               # MCP server connectivity test
 ├── src/
 │   ├── main.py               # CLI entry point and chat loop
+│   ├── config.py             # Central settings and hyperparameters
 │   ├── ingest.py             # MCP Client: connects to server, embeds, stores
-│   ├── mcp_github_server.py  # MCP Server: fetches docs from GitHub
-│   ├── mcp_jira_server.py    # MCP Server: Jira integration (9 tools)
 │   ├── retriever.py          # Semantic search across ChromaDB collections
 │   ├── llm_client.py         # RAG prompt engineering and Groq API calls
-│   ├── config.py             # Central settings and hyperparameters
+│   ├── mcp_github_server.py  # MCP Server: fetches docs from GitHub
+│   ├── mcp_jira_server.py    # MCP Server: Jira integration (9 tools)
 │   ├── file_handler.py       # File attachment parsing and diagnostics
 │   ├── chat_export.py        # Export chat as TXT/PDF
 │   ├── learning_agent.py     # Self-learning: extracts patterns from sessions
 │   ├── skill_generator.py    # Generates skill documents from learned patterns
 │   └── user_config.py        # Credential management
-├── chroma_db/                # Persistent vector store (auto-created)
-├── requirements.txt          # Project dependencies
-├── .env                      # API keys and config (user-created)
+├── chroma_db/                # Persistent vector store (auto-created, gitignored)
+├── .env                      # API keys and config (user-created, gitignored)
 └── .gitignore
 ```
 
