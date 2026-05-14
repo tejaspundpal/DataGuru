@@ -1,13 +1,33 @@
+# Virtual environment
 .venv/
+
+# Environment variables (contains secrets)
 .env
+
+# ChromaDB persistent storage
 chroma_db/
-chroma_db/workspaces/
+
+# Python bytecode
 __pycache__/
 *.pyc
+*.pyo
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Generated content
 learned_skills/
-# Exclude planning and tracking docs
+
+# Planning and tracking docs
 docs/
+
+# IDE
+.idea/
+.vscode/
+
+# Test artifacts
+*.log
 task.md
 implementation_plan.md
 summary.md

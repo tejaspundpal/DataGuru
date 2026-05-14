@@ -51,7 +51,7 @@ RULES:
 
 Return a JSON array of objects with this exact structure:
 [
-  {
+  {{
     "title": "Short descriptive title of the incident pattern",
     "technology": "Primary technology (e.g., Informatica, Spark, SQL, Python, Unix)",
     "error_pattern": "The specific error codes, messages, or symptoms that identify this issue",
@@ -59,7 +59,7 @@ Return a JSON array of objects with this exact structure:
     "resolution": "Step-by-step fix that was identified",
     "prevention": "How to prevent recurrence (if discussed)",
     "keywords": ["keyword1", "keyword2", "keyword3"]
-  }
+  }}
 ]
 
 If no meaningful patterns can be extracted, return: []

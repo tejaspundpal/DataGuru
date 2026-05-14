@@ -16,14 +16,21 @@ def _resolve(key: str) -> str:
 
 # ── Base paths ────────────────────────────────────────────────
 BASE_DIR          = Path(__file__).parent.parent
-KNOWLEDGE_BASE_DIR = BASE_DIR / "knowledge_base"
-CHROMA_DB_DIR     = BASE_DIR / "chroma_db"
+_DATA_DIR         = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
+KNOWLEDGE_BASE_DIR = _DATA_DIR / "knowledge_base"
+CHROMA_DB_DIR     = _DATA_DIR / "chroma_db"
 
 # ── GitHub MCP ────────────────────────────────────────────────
 _raw_repo = _resolve("GITHUB_REPO")
 # Sanitize URL to just owner/repo if user pasted the full link
 GITHUB_REPO = _raw_repo.replace("https://github.com/", "").replace("http://github.com/", "").strip("/")
 GITHUB_TOKEN = _resolve("GITHUB_TOKEN")  # Optional for public repos
+
+# ── Jira Integration ──────────────────────────────────────────
+JIRA_BASE_URL    = _resolve("JIRA_BASE_URL")     # e.g., https://yourcompany.atlassian.net
+JIRA_USERNAME    = _resolve("JIRA_USERNAME")      # email or username
+JIRA_PASSWORD    = _resolve("JIRA_PASSWORD")      # API token (Jira Cloud) or password (Jira Server)
+JIRA_VERIFY_SSL  = _resolve("JIRA_VERIFY_SSL").lower() not in ("false", "0", "no", "")
 
 # ── Groq / LLM ───────────────────────────────────────────────
 GROQ_API_KEY = _resolve("GROQ_API_KEY")

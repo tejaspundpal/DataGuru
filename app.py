@@ -1,14 +1,15 @@
 """
-DataGuru — Premium Web UI
+DataGuru — Premium Web UI (Single-User)
 A private Data Engineering knowledge assistant powered by RAG + Self-Learning.
 
 Run: streamlit run app.py
 """
 
 import sys
-import hashlib
+import json
 import re
 from pathlib import Path
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
@@ -22,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ─── Premium CSS Theme — Emerald & Gold ───────────────────────
+# ─── Premium CSS Theme ────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -98,7 +99,6 @@ section[data-testid="stSidebar"] > div {
     color: #4a6070 !important;
     opacity: 1 !important;
 }
-/* Password mask dots — must be same color as text */
 [data-testid="stSidebar"] .stTextInput > div > div > input[type="password"] {
     color: #e2e8f0 !important;
     -webkit-text-security: disc !important;
@@ -538,12 +538,7 @@ div[data-testid="stHorizontalBlock"] .stButton > button:hover {
 .fade-up-d3 { animation-delay: 0.15s; opacity: 0; }
 .fade-up-d4 { animation-delay: 0.2s; opacity: 0; }
 
-/* ════════════════════════════════════════════════════════════
-   GLOBAL CONTRAST ENFORCEMENT
-   Rule: white/light bg → dark text | dark bg → light text
-   ════════════════════════════════════════════════════════════ */
-
-/* ── All text inputs / textareas (main area + sidebar) ─────── */
+/* ── Global Inputs ────────────────────────────────────────── */
 .stTextInput > div > div > input,
 .stTextArea > div > div > textarea,
 .stNumberInput > div > div > input,
@@ -559,7 +554,6 @@ div[data-testid="stHorizontalBlock"] .stButton > button:hover {
     color: #4a6070 !important;
     opacity: 1 !important;
 }
-/* Password field dots — must match text color to be visible */
 input[type="password"] {
     color: #e2e8f0 !important;
     background: #0d1e2e !important;
@@ -572,21 +566,16 @@ input[type="text"], input[type="email"], input[type="search"] {
     background: #0d1e2e !important;
 }
 
-/* ── File uploader dark styling ─────────────────────────────── */
 [data-testid="stFileUploader"] {
     background: rgba(13,30,46,0.8) !important;
     border: 1px dashed rgba(6,182,212,0.3) !important;
     border-radius: 8px !important;
 }
-[data-testid="stFileUploader"] section {
-    background: transparent !important;
-}
+[data-testid="stFileUploader"] section { background: transparent !important; }
 [data-testid="stFileUploader"] label,
 [data-testid="stFileUploader"] span,
 [data-testid="stFileUploader"] p,
-[data-testid="stFileUploader"] small {
-    color: #94a3b8 !important;
-}
+[data-testid="stFileUploader"] small { color: #94a3b8 !important; }
 [data-testid="stFileUploader"] button {
     background: rgba(6,182,212,0.15) !important;
     color: #67e8f9 !important;
@@ -594,14 +583,10 @@ input[type="text"], input[type="email"], input[type="search"] {
     border-radius: 6px !important;
 }
 
-/* ── Streamlit default white containers fix ─────────────────── */
 [data-testid="stAppViewBlockContainer"],
 [data-testid="stVerticalBlock"],
-[data-testid="stHorizontalBlock"] {
-    background: transparent !important;
-}
+[data-testid="stHorizontalBlock"] { background: transparent !important; }
 
-/* ── Input focus state (all inputs) ─────────────────────────── */
 .stTextInput > div > div > input:focus,
 .stTextArea > div > div > textarea:focus {
     border-color: #06b6d4 !important;
@@ -611,7 +596,6 @@ input[type="text"], input[type="email"], input[type="search"] {
     color: #e2e8f0 !important;
 }
 
-/* ── Labels for all form elements ─────────────────────────────  */
 .stTextInput label,
 .stTextArea label,
 .stSelectbox label,
@@ -621,7 +605,6 @@ input[type="text"], input[type="email"], input[type="search"] {
     font-weight: 500 !important;
 }
 
-/* ── Streamlit alerts / toasts ─────────────────────────────── */
 [data-testid="stAlert"] {
     background: #162535 !important;
     border-left-color: #06b6d4 !important;
@@ -629,49 +612,54 @@ input[type="text"], input[type="email"], input[type="search"] {
 }
 [data-testid="stAlert"] p { color: #e2e8f0 !important; }
 
-/* ── "Not connected" / status pill text ─────────────────────── */
-.stCaption, .stCaption p {
-    color: #64748b !important;
-}
+.stCaption, .stCaption p { color: #64748b !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ─── Session State ────────────────────────────────────────────
-def init_session_state():
-    defaults = {
-        "messages": [],
-        "chat_history": [],
-        "full_session_history": [],
-        "attachment": None,
-        "configured": False,
-        "groq_api_key": "",
-        "github_repo": "",
-        "github_token": "",
-        "ingested": False,
-        "last_chroma_update": None,
-        "workspace_id": "",
-    }
-    for key, val in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = val
+# ═══════════════════════════════════════════════════════════════
+# SESSION STATE
+# ═══════════════════════════════════════════════════════════════
+
+defaults = {
+    "messages": [],
+    "chat_history": [],
+    "full_session_history": [],
+    "attachment": None,
+    "configured": False,
+    "groq_api_key": "",
+    "github_repo": "",
+    "github_token": "",
+    "jira_base_url": "",
+    "jira_username": "",
+    "jira_password": "",
+    "ingested": False,
+    "last_chroma_update": None,
+}
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
+
+# Load defaults from .env if present
+if not st.session_state.configured:
+    from config import GROQ_API_KEY, GITHUB_REPO, GITHUB_TOKEN, JIRA_BASE_URL, JIRA_USERNAME, JIRA_PASSWORD
+    if GROQ_API_KEY and GITHUB_REPO:
+        st.session_state.groq_api_key = GROQ_API_KEY
+        st.session_state.github_repo = GITHUB_REPO
+        st.session_state.github_token = GITHUB_TOKEN
+        st.session_state.jira_base_url = JIRA_BASE_URL
+        st.session_state.jira_username = JIRA_USERNAME
+        st.session_state.jira_password = JIRA_PASSWORD
+        st.session_state.configured = True
 
 
-init_session_state()
+# ═══════════════════════════════════════════════════════════════
+# CORE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
 
-
-# ─── Core Functions ───────────────────────────────────────────
-def _slugify_workspace(value: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-")
-    return cleaned[:48] if cleaned else ""
-
-
-def _workspace_defaults() -> tuple[Path, str, str]:
-    ws = st.session_state.workspace_id or "default"
-    db_dir = Path(__file__).parent / "chroma_db" / "workspaces" / ws
-    main_collection = "dataguru_knowledge"
-    learned_collection = "dataguru_learned_patterns"
-    return db_dir, main_collection, learned_collection
+def _db_dir() -> Path:
+    """ChromaDB storage directory."""
+    return Path(__file__).parent / "chroma_db"
 
 
 def run_ingest_web():
@@ -681,14 +669,11 @@ def run_ingest_web():
 
     with st.spinner("Fetching & indexing documents from your repository..."):
         try:
-            db_dir, main_collection, learned_collection = _workspace_defaults()
             asyncio.run(
                 ingest_documents(
                     github_repo=st.session_state.github_repo,
                     github_token=st.session_state.github_token,
-                    db_dir=db_dir,
-                    collection_name=main_collection,
-                    learned_collection_name=learned_collection,
+                    db_dir=_db_dir(),
                 )
             )
             _retriever.reset_singletons()
@@ -737,11 +722,7 @@ def handle_file_upload(uploaded_file):
 def get_learned_patterns_count():
     try:
         from learning_agent import get_learned_count
-        db_dir, _, learned_collection = _workspace_defaults()
-        return get_learned_count(
-            db_dir=db_dir,
-            learned_collection_name=learned_collection,
-        )
+        return get_learned_count(db_dir=_db_dir())
     except Exception:
         return 0
 
@@ -752,28 +733,22 @@ def update_chroma_from_current_session():
 
     chat_history = st.session_state.full_session_history
     attachment = st.session_state.attachment
-    db_dir, _, learned_collection = _workspace_defaults()
 
     with st.spinner("Updating ChromaDB with current chat and attachment embeddings..."):
         patterns = learn_from_session(
             chat_history,
             attachment,
-            db_dir=db_dir,
-            learned_collection_name=learned_collection,
+            db_dir=_db_dir(),
             groq_api_key=st.session_state.groq_api_key,
         )
         memory_result = store_session_memory_embeddings(
             chat_history,
             attachment,
-            db_dir=db_dir,
-            learned_collection_name=learned_collection,
+            db_dir=_db_dir(),
         )
         _retriever.reset_singletons()
 
-    total_patterns = get_learned_count(
-        db_dir=db_dir,
-        learned_collection_name=learned_collection,
-    )
+    total_patterns = get_learned_count(db_dir=_db_dir())
     st.session_state.last_chroma_update = {
         "patterns_added": len(patterns),
         "memory_stored": bool(memory_result.get("stored")),
@@ -790,6 +765,157 @@ def update_chroma_from_current_session():
         st.toast("No new embedding stored (already saved or no chat yet).", icon="ℹ️")
 
 
+# ─────────────────────────────────────────────────────────────
+# Jira Issue Analysis Helper
+# ─────────────────────────────────────────────────────────────
+
+def _detect_and_fetch_jira(query: str) -> dict | None:
+    """
+    Detect Jira issue keys in a query (e.g., SCRUM-2, DATA-101) and fetch
+    the issue details + comments for LLM analysis.
+    Returns None if no Jira key found or Jira not configured.
+    """
+    import httpx
+    from base64 import b64encode
+
+    # Pattern: 2-10 uppercase letters followed by dash and 1-6 digits
+    jira_pattern = re.compile(r'\b([A-Z]{2,10}-\d{1,6})\b')
+    matches = jira_pattern.findall(query)
+    if not matches:
+        return None
+
+    issue_key = matches[0]  # Use the first detected key
+
+    # Check if Jira is configured
+    jira_url = st.session_state.get("jira_base_url", "").strip()
+    jira_user = st.session_state.get("jira_username", "").strip()
+    jira_pass = st.session_state.get("jira_password", "").strip()
+
+    if not all([jira_url, jira_user, jira_pass]):
+        return None
+
+    base_url = jira_url.rstrip("/")
+    creds = b64encode(f"{jira_user}:{jira_pass}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {creds}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    try:
+        # Fetch issue details
+        r = httpx.get(
+            f"{base_url}/rest/api/3/issue/{issue_key}",
+            headers=headers,
+            params={"expand": "renderedFields"},
+            verify=True,
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return None
+
+        issue = r.json()
+        fields = issue.get("fields", {})
+
+        # Extract key fields
+        summary = fields.get("summary", "")
+        status = (fields.get("status") or {}).get("name", "Unknown")
+        priority = (fields.get("priority") or {}).get("name", "None")
+        issuetype = (fields.get("issuetype") or {}).get("name", "Unknown")
+        assignee = (fields.get("assignee") or {}).get("displayName", "Unassigned")
+        reporter = (fields.get("reporter") or {}).get("displayName", "Unknown")
+        project = (fields.get("project") or {}).get("key", "Unknown")
+        created = fields.get("created", "")[:10]
+        labels = fields.get("labels", [])
+
+        # Parse ADF description to plain text
+        description = _adf_to_text(fields.get("description"))
+
+        # Fetch comments
+        r2 = httpx.get(
+            f"{base_url}/rest/api/3/issue/{issue_key}/comment",
+            headers=headers,
+            params={"maxResults": 20, "orderBy": "created"},
+            verify=True,
+            timeout=15,
+        )
+        comments_text = ""
+        if r2.status_code == 200:
+            comments = r2.json().get("comments", [])
+            for c in comments:
+                author = (c.get("author") or {}).get("displayName", "Unknown")
+                body = _adf_to_text(c.get("body"))
+                date = c.get("created", "")[:10]
+                comments_text += f"\n--- Comment by {author} ({date}) ---\n{body}\n"
+
+        # Build full text for LLM
+        full_text = (
+            f"JIRA ISSUE: {issue_key}\n"
+            f"{'=' * 50}\n"
+            f"Summary: {summary}\n"
+            f"Type: {issuetype} | Priority: {priority} | Status: {status}\n"
+            f"Assignee: {assignee} | Reporter: {reporter}\n"
+            f"Project: {project} | Created: {created}\n"
+            f"Labels: {', '.join(labels) if labels else 'None'}\n"
+            f"URL: {base_url}/browse/{issue_key}\n"
+            f"{'─' * 50}\n"
+            f"DESCRIPTION:\n{description}\n"
+        )
+        if comments_text:
+            full_text += f"\n{'─' * 50}\nCOMMENTS:{comments_text}\n"
+
+        # Extract search terms for KB retrieval (summary + key technology words)
+        search_terms = f"{summary} {issuetype} {' '.join(labels)}"
+
+        # Detect errors/warnings from description + comments
+        all_text = f"{description}\n{comments_text}"
+        errors = []
+        warnings = []
+        for line in all_text.split("\n"):
+            line_lower = line.strip().lower()
+            if any(kw in line_lower for kw in ["error", "exception", "traceback", "failed", "fatal"]):
+                errors.append(line.strip())
+            elif any(kw in line_lower for kw in ["warning", "warn", "deprecated", "timeout"]):
+                warnings.append(line.strip())
+
+        return {
+            "key": issue_key,
+            "summary": summary,
+            "full_text": full_text,
+            "search_terms": search_terms,
+            "errors": errors[:10],  # Limit to avoid overflow
+            "warnings": warnings[:5],
+        }
+
+    except Exception:
+        return None
+
+
+def _adf_to_text(adf) -> str:
+    """Convert Atlassian Document Format to plain text."""
+    if not adf:
+        return ""
+    if isinstance(adf, str):
+        return adf
+
+    text_parts = []
+
+    def _extract(node):
+        if isinstance(node, dict):
+            if node.get("type") == "text":
+                text_parts.append(node.get("text", ""))
+            elif node.get("type") == "hardBreak":
+                text_parts.append("\n")
+            for child in node.get("content", []):
+                _extract(child)
+        elif isinstance(node, list):
+            for item in node:
+                _extract(item)
+
+    _extract(adf)
+    return "".join(text_parts).strip()
+
+
 def get_answer(query: str) -> tuple[str, list[dict]]:
     from retriever import retrieve
     from llm_client import build_rag_prompt, GROQ_MODEL
@@ -799,26 +925,56 @@ def get_answer(query: str) -> tuple[str, list[dict]]:
 
     search_query = query
     attachment = st.session_state.attachment
+
+    # ── Detect Jira issue keys in the query (e.g., SCRUM-2, DATA-101) ──
+    jira_context = _detect_and_fetch_jira(query)
+
     if attachment:
         attachment_query = build_search_query_from_attachment(attachment)
         search_query = f"{query} {attachment_query}"
+    elif jira_context:
+        # Use Jira issue content to enhance KB retrieval
+        search_query = f"{query} {jira_context['search_terms']}"
 
-    db_dir, main_collection, learned_collection = _workspace_defaults()
-    chunks = retrieve(
-        search_query,
-        db_dir=db_dir,
-        collection_name=main_collection,
-        learned_collection_name=learned_collection,
-    )
+    chunks = retrieve(search_query, db_dir=_db_dir())
     chat_history = st.session_state.chat_history
-    messages = build_rag_prompt(query, chunks, chat_history, attachment)
+
+    # If Jira issue was detected, inject it as an attachment-like context
+    effective_attachment = attachment
+    if jira_context and not attachment:
+        effective_attachment = {
+            "file_name": f"Jira Issue: {jira_context['key']}",
+            "content": jira_context["full_text"],
+            "truncated": False,
+            "diagnostics": {
+                "errors": jira_context.get("errors", []),
+                "warnings": jira_context.get("warnings", []),
+            },
+        }
+
+    messages = build_rag_prompt(query, chunks, chat_history, effective_attachment)
+
+    # For Jira analysis, enhance the system prompt with analysis instructions
+    if jira_context:
+        jira_analysis_instruction = (
+            "\n\nIMPORTANT: The user is asking you to analyze a Jira issue/ticket. "
+            "Structure your response as follows:\n"
+            "1. **Issue Summary** — What this ticket is about\n"
+            "2. **Error Analysis** — Identify the root cause of the error from the logs/description\n"
+            "3. **Solution Ideas** — Provide concrete, actionable solutions (use knowledge base if applicable)\n"
+            "4. **Prevention Strategy** — How to prevent this issue from recurring\n\n"
+            "Use both the Jira ticket details AND the knowledge base context to provide the best answer. "
+            "If the knowledge base has relevant documentation, cite it. "
+            "You may also use your technical expertise to supplement the analysis."
+        )
+        messages[0]["content"] += jira_analysis_instruction
 
     client = Groq(api_key=st.session_state.groq_api_key)
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=messages,
         temperature=0.1,
-        max_tokens=1024,
+        max_tokens=2048,
         stream=True,
     )
 
@@ -843,7 +999,10 @@ def get_answer(query: str) -> tuple[str, list[dict]]:
     return full_answer, chunks
 
 
-# ─── Sidebar ──────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# SIDEBAR
+# ═══════════════════════════════════════════════════════════════
+
 with st.sidebar:
     # Brand
     st.markdown("""
@@ -855,7 +1014,7 @@ with st.sidebar:
             DataGuru
         </div>
         <div style="font-size:0.68rem; color:#6b7280; margin-top:0.2rem; font-weight:400;">
-            Knowledge Assistant • v2.1
+            Knowledge Assistant • v3.0
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -867,48 +1026,50 @@ with st.sidebar:
 
     groq_key = st.text_input("Groq API Key", value=st.session_state.groq_api_key, type="password", placeholder="gsk_...")
     github_repo = st.text_input("GitHub Repo", value=st.session_state.github_repo, placeholder="owner/repo-name")
-    github_token = st.text_input("GitHub Token", value=st.session_state.github_token, type="password", placeholder="ghp_... (private repos)")
-    workspace_name = st.text_input(
-        "Workspace Name",
-        value=st.session_state.workspace_id,
-        placeholder="my-team-workspace",
-        help="Each workspace has isolated credentials and Chroma knowledge base.",
-    )
+    github_token = st.text_input("GitHub Token", value=st.session_state.github_token, type="password", placeholder="ghp_... (optional for public)")
+
+    # Jira section (collapsible)
+    with st.expander("🎫 Jira Integration (Optional)"):
+        jira_url = st.text_input("Jira Base URL", value=st.session_state.jira_base_url, placeholder="https://yourcompany.atlassian.net")
+        jira_user = st.text_input("Jira Username", value=st.session_state.jira_username, placeholder="your-email@company.com")
+        jira_pass = st.text_input("Jira Password/Token", value=st.session_state.jira_password, type="password", placeholder="API token")
 
     if st.button("Connect", use_container_width=True, type="primary"):
         if not groq_key:
             st.toast("Groq API Key is required", icon="⚠️")
         elif not github_repo:
             st.toast("GitHub Repo is required", icon="⚠️")
-        elif not workspace_name.strip():
-            st.toast("Workspace Name is required for multi-user isolation", icon="⚠️")
         else:
             repo_clean = github_repo.replace("https://github.com/", "").replace("http://github.com/", "").strip("/")
-            workspace_id = _slugify_workspace(workspace_name)
-            if not workspace_id:
-                st.toast("Workspace Name must include letters/numbers", icon="⚠️")
-                st.stop()
             st.session_state.groq_api_key = groq_key
             st.session_state.github_repo = repo_clean
             st.session_state.github_token = github_token
-            previous_workspace = st.session_state.workspace_id
-            st.session_state.workspace_id = workspace_id
-            if previous_workspace and previous_workspace != workspace_id:
-                st.session_state.messages = []
-                st.session_state.chat_history = []
-                st.session_state.full_session_history = []
-                st.session_state.attachment = None
-                st.session_state.last_chroma_update = None
-                st.session_state.ingested = False
+            st.session_state.jira_base_url = jira_url.rstrip("/") if jira_url else ""
+            st.session_state.jira_username = jira_user
+            st.session_state.jira_password = jira_pass
             st.session_state.configured = True
+            # Set env vars so MCP servers can access them
+            import os
+            os.environ["GROQ_API_KEY"] = groq_key
+            os.environ["GITHUB_REPO"] = repo_clean
+            os.environ["GITHUB_TOKEN"] = github_token
+            os.environ["JIRA_BASE_URL"] = st.session_state.jira_base_url
+            os.environ["JIRA_USERNAME"] = jira_user
+            os.environ["JIRA_PASSWORD"] = jira_pass
             st.rerun()
 
     if st.session_state.configured:
         st.markdown(
             f'<div class="pill-connected"><span class="pulse-dot"></span> '
-            f'{st.session_state.workspace_id} • {st.session_state.github_repo.split("/")[-1]}</div>',
+            f'{st.session_state.github_repo.split("/")[-1]}</div>',
             unsafe_allow_html=True,
         )
+        if st.session_state.jira_base_url:
+            jira_display = st.session_state.jira_base_url.replace("https://", "").split(".")[0]
+            st.markdown(
+                f'<div class="pill-connected" style="margin-top:0.3rem;"><span class="pulse-dot"></span> Jira: {jira_display}</div>',
+                unsafe_allow_html=True,
+            )
     else:
         st.markdown('<div class="pill-disconnected">○ Not connected</div>', unsafe_allow_html=True)
 
@@ -966,7 +1127,7 @@ with st.sidebar:
         learned = get_learned_patterns_count()
         msgs = len(st.session_state.messages)
         st.markdown(f"""
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.4rem;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-bottom:1rem;">
             <div class="stat-box">
                 <div class="stat-val">{learned}</div>
                 <div class="stat-lbl">Patterns</div>
@@ -979,29 +1140,58 @@ with st.sidebar:
         """, unsafe_allow_html=True)
 
         can_update = len(st.session_state.full_session_history) >= 2
-        if st.button("Update Chroma from Chat + File", use_container_width=True, disabled=not can_update):
+        if st.button("Update Chroma from Chat", use_container_width=True, disabled=not can_update):
             update_chroma_from_current_session()
             st.rerun()
 
         if not can_update:
-            st.caption("Ask at least one question first to store embeddings.")
+            st.caption("Ask at least one question first.")
 
         status = st.session_state.last_chroma_update
         if status:
             icon = "✅" if (status["patterns_added"] > 0 or status["memory_stored"]) else "ℹ️"
             st.caption(
-                f"{icon} Last update -> patterns +{status['patterns_added']}, "
-                f"session embedding: {'stored' if status['memory_stored'] else 'not stored'}, "
+                f"{icon} Patterns +{status['patterns_added']}, "
                 f"pairs: {status['message_pairs']}, "
-                f"attachment: {'yes' if status['has_attachment'] else 'no'}, "
-                f"total patterns: {status['total_patterns']}"
+                f"total: {status['total_patterns']}"
             )
-            if status.get("reason"):
-                st.caption(f"Note: {status['reason']}")
     else:
         st.caption("Available after sync")
 
-    # Footer — Author
+    st.markdown("---")
+
+    # ─ Export Chat
+    st.markdown('<div class="sec-label">📤 EXPORT CHAT</div>', unsafe_allow_html=True)
+
+    if st.session_state.messages:
+        export_col1, export_col2 = st.columns(2)
+        with export_col1:
+            from chat_export import export_chat_as_text
+            txt_data = export_chat_as_text(st.session_state.messages, "User")
+            st.download_button(
+                "📄 TXT",
+                data=txt_data,
+                file_name=f"dataguru_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+        with export_col2:
+            from chat_export import export_chat_as_pdf
+            try:
+                pdf_data = export_chat_as_pdf(st.session_state.messages, "User")
+                st.download_button(
+                    "📕 PDF",
+                    data=pdf_data,
+                    file_name=f"dataguru_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            except Exception:
+                st.caption("PDF export requires fpdf2")
+    else:
+        st.caption("No chat to export yet.")
+
+    # Footer
     st.markdown("---")
     st.markdown("""
     <div style="text-align:center; padding:0.2rem 0;">
@@ -1017,12 +1207,13 @@ with st.sidebar:
             </svg>
             LinkedIn
         </a>
-        <div style="font-size:0.58rem; color:#4b5563; margin-top:0.35rem;">Credentials stay in browser only</div>
     </div>
     """, unsafe_allow_html=True)
 
 
-# ─── Main Content ────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# MAIN CONTENT
+# ═══════════════════════════════════════════════════════════════
 
 # Hero
 st.markdown("""
@@ -1031,12 +1222,13 @@ st.markdown("""
         ⚡ <span class="logo-accent">DataGuru</span>
     </div>
     <div class="hero-subtitle">
-        Your private knowledge assistant for Data Engineering — ask about pipelines, debug errors, analyze logs, and get instant answers from your own docs.
+        Your private knowledge assistant for Data Engineering — ask about pipelines, debug errors, analyze logs, investigate Jira tickets, and get instant answers from your own docs.
     </div>
     <div class="hero-badges">
         <span class="hero-badge"><span class="pulse-dot"></span> RAG-Powered</span>
         <span class="hero-badge">🧠 Self-Learning</span>
         <span class="hero-badge">📎 File Analysis</span>
+        <span class="hero-badge">🎫 Jira Integration</span>
         <span class="hero-badge">🔒 Fully Private</span>
     </div>
 </div>
@@ -1050,17 +1242,17 @@ if not st.session_state.configured:
         <div class="onboard-card fade-up fade-up-d1">
             <div class="onboard-icon onboard-icon-green">🔑</div>
             <div class="onboard-title">1. Connect</div>
-            <div class="onboard-desc">Enter your free Groq API key and the GitHub repo that holds your knowledge base documents.</div>
+            <div class="onboard-desc">Enter your free Groq API key and the GitHub repo that holds your knowledge base documents. Optionally add Jira credentials.</div>
         </div>
         <div class="onboard-card fade-up fade-up-d2">
             <div class="onboard-icon onboard-icon-amber">📥</div>
             <div class="onboard-title">2. Sync Once</div>
-            <div class="onboard-desc">First time only — click "Sync Docs" to index your repo. After that, DataGuru remembers everything. Re-sync only when you add new files.</div>
+            <div class="onboard-desc">First time only — click "Sync Docs" to index your repo. After that, DataGuru remembers everything.</div>
         </div>
         <div class="onboard-card fade-up fade-up-d3">
             <div class="onboard-icon onboard-icon-blue">💬</div>
             <div class="onboard-title">3. Ask Anything</div>
-            <div class="onboard-desc">Get instant answers with source citations from your docs. Drop a log file for root-cause analysis.</div>
+            <div class="onboard-desc">Get instant answers with source citations. Drop a log file or paste a Jira ticket number for analysis.</div>
         </div>
         <div class="onboard-card fade-up fade-up-d4">
             <div class="onboard-icon onboard-icon-rose">🧠</div>
@@ -1073,7 +1265,7 @@ if not st.session_state.configured:
 
 # ─── Gated: Not Ingested ─────────────────────────────────────
 if not st.session_state.ingested:
-    db_dir, _, _ = _workspace_defaults()
+    db_dir = _db_dir()
     if db_dir.exists() and any(db_dir.iterdir()):
         st.session_state.ingested = True
     else:
@@ -1083,8 +1275,8 @@ if not st.session_state.ingested:
                 <div class="onboard-icon onboard-icon-amber" style="margin:0 auto 1rem;">📥</div>
                 <div class="onboard-title" style="font-size:1.1rem;">First-Time Setup: Sync Your Knowledge Base</div>
                 <div class="onboard-desc" style="max-width:450px; margin:0.5rem auto 0; font-size:0.85rem;">
-                    This is a <strong>one-time step</strong>. Click <strong>"Sync Docs"</strong> in the sidebar to fetch and index documents from your GitHub repo.
-                    After syncing, DataGuru will remember the index — you won't need to do this again unless you add new files to the repo.
+                    Click <strong>"Sync Docs"</strong> in the sidebar to fetch and index documents from your GitHub repo.
+                    This is a one-time step — re-sync only when you add new files.
                 </div>
             </div>
         </div>
@@ -1092,7 +1284,9 @@ if not st.session_state.ingested:
         st.stop()
 
 
-# ─── Chat Interface ──────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# CHAT INTERFACE
+# ═══════════════════════════════════════════════════════════════
 
 # Previous messages
 for msg in st.session_state.messages:
